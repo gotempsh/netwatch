@@ -91,7 +91,7 @@ pub fn list_with(addrs: &BTreeMap<String, Vec<String>>) -> Vec<IfInfo> {
     };
     let mut out: Vec<IfInfo> = dir
         .filter_map(Result::ok)
-        .filter_map(|e| {
+        .map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
             let base = e.path();
             let ty = read_u64(&base.join("type")) as u32;
@@ -112,7 +112,7 @@ pub fn list_with(addrs: &BTreeMap<String, Vec<String>>) -> Vec<IfInfo> {
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|m| !m.is_empty() && m != "00:00:00:00:00:00");
-            Some(IfInfo {
+            IfInfo {
                 ifindex: read_u64(&base.join("ifindex")) as u32,
                 kind,
                 // "unknown" is normal for tunnels; IFF_UP decides.
@@ -128,7 +128,7 @@ pub fn list_with(addrs: &BTreeMap<String, Vec<String>>) -> Vec<IfInfo> {
                 rx_errors: read_u64(&st.join("rx_errors")),
                 tx_errors: read_u64(&st.join("tx_errors")),
                 name,
-            })
+            }
         })
         .collect();
     out.sort_by_key(|i| i.ifindex);

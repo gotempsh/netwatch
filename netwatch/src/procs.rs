@@ -135,10 +135,10 @@ pub fn socket_inodes() -> HashMap<u64, u32> {
         for fd in fds.filter_map(Result::ok) {
             if let Ok(target) = std::fs::read_link(fd.path()) {
                 let t = target.to_string_lossy();
-                if let Some(inode) = t.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']')) {
-                    if let Ok(i) = inode.parse() {
-                        out.entry(i).or_insert(pid);
-                    }
+                if let Some(inode) = t.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']'))
+                    && let Ok(i) = inode.parse()
+                {
+                    out.entry(i).or_insert(pid);
                 }
             }
         }
@@ -228,18 +228,16 @@ impl OwnerCache {
         if pid == 0 {
             return None;
         }
-        if let Some((o, ts)) = self.by_pid.get(&pid) {
-            if now - ts < 60 {
-                return Some(o.clone());
-            }
+        if let Some((o, ts)) = self.by_pid.get(&pid)
+            && now - ts < 60
+        {
+            return Some(o.clone());
         }
         let base = format!("/proc/{pid}");
         let comm = std::fs::read_to_string(format!("{base}/comm"))
             .ok()
             .map(|s| s.trim().to_string());
-        let Some(comm) = comm.or_else(|| comm_hint.map(str::to_string)) else {
-            return None;
-        };
+        let comm = comm.or_else(|| comm_hint.map(str::to_string))?;
         let exe = std::fs::read_link(format!("{base}/exe"))
             .ok()
             .map(|p| p.to_string_lossy().into_owned());

@@ -359,12 +359,12 @@ pub fn discover_peers(cfg: &Config) -> BTreeSet<IpNet> {
         out.insert(IpNet::from(ip));
     }
     #[cfg(target_os = "linux")]
-    if let Some(text) = run("ip", &["-j", "route", "show", "default"]) {
-        if let Ok(serde_json::Value::Array(routes)) = serde_json::from_str(&text) {
-            for r in routes {
-                if let Some(ip) = r["gateway"].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
-                    out.insert(IpNet::from(ip));
-                }
+    if let Some(text) = run("ip", &["-j", "route", "show", "default"])
+        && let Ok(serde_json::Value::Array(routes)) = serde_json::from_str(&text)
+    {
+        for r in routes {
+            if let Some(ip) = r["gateway"].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
+                out.insert(IpNet::from(ip));
             }
         }
     }

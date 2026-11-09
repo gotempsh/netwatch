@@ -1,0 +1,28 @@
+[Unit]
+Description=netwatch XDP traffic monitor
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/netwatch -c /etc/netwatch/netwatch.toml run
+# Put NETWATCH_LLM_API_KEY=... here to enable LLM analysis (mode 0600).
+EnvironmentFile=-/etc/netwatch/env
+Environment=RUST_LOG=info
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=netwatch
+RuntimeDirectoryMode=0700
+StateDirectory=netwatch
+# Needs root for BPF, XDP attach, journal access and `sshd -T`; keep the rest locked down.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netwatch
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

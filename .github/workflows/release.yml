@@ -1,0 +1,104 @@
+name: Release
+
+# Push a tag vX.Y.Z matching the version in netwatch/Cargo.toml. A suffix
+# (v0.2.0-rc.1) publishes a prerelease that doesn't move "latest".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the crate version
+        run: |
+          want=$(grep -m1 '^version' netwatch/Cargo.toml | cut -d'"' -f2)
+          [ "${GITHUB_REF_NAME#v}" = "$want" ] || [ "${GITHUB_REF_NAME%%-*}" = "v$want" ] \
+            || { echo "tag $GITHUB_REF_NAME does not match netwatch/Cargo.toml version $want" >&2; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm --prefix ui ci && npm --prefix ui run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+  build:
+    needs: ui
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 runners: the binaries need glibc 2.35 or newer.
+          - { os: ubuntu-22.04, asset: netwatch-linux-x86_64, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, asset: netwatch-linux-aarch64, target: aarch64-unknown-linux-gnu }
+          - { os: macos-15, asset: netwatch-macos-arm64, target: aarch64-apple-darwin }
+          - { os: macos-15, asset: netwatch-macos-x86_64, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Install toolchains
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          if [ "$RUNNER_OS" = Linux ]; then
+            rustup toolchain install nightly --profile minimal --component rust-src
+            curl -fsSL "https://github.com/aya-rs/bpf-linker/releases/download/v0.12.0/bpf-linker-$(uname -m)-unknown-linux-musl.tar.zst" \
+              | tar --zstd -x -C ~/.cargo/bin
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked -p netwatch --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          d=${{ matrix.asset }}
+          mkdir -p "$d"
+          cp target/${{ matrix.target }}/release/netwatch LICENSE-* README.md "$d/"
+          if [ "$RUNNER_OS" = Linux ]; then
+            mkdir -p "$d/scripts"
+            cp -R scripts/install.sh scripts/netwatch-update-geoip scripts/systemd "$d/scripts/"
+          fi
+          tar -czf "$d.tar.gz" "$d"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}.tar.gz
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: netwatch-*
+          merge-multiple: true
+      - run: sha256sum netwatch-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: netwatch-*.tar.gz
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes $pre \
+            netwatch-*.tar.gz SHA256SUMS

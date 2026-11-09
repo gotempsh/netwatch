@@ -1,0 +1,32 @@
+# netwatch as a container. It watches the host it runs on, so it shares the
+# host's network and processes and runs privileged: eBPF/XDP, tracepoints, and
+# reading host files and tools through /proc/1/root. The only host path mounted
+# is /run/netwatch, so temps on the host can reach the request-line socket.
+# The UI and API stay on 127.0.0.1:9180 (no published ports).
+#
+#   docker compose up -d --build
+#   docker compose exec netwatch netwatch status
+#
+# One copy per server: XDP allows a single program per interface.
+services:
+  netwatch:
+    build: .
+    image: netwatch:latest
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    privileged: true
+    # Time to write open connections to the database on shutdown.
+    stop_grace_period: 30s
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      NETWATCH_SLACK_WEBHOOK: ${NETWATCH_SLACK_WEBHOOK:-}
+      NETWATCH_LLM_API_KEY: ${NETWATCH_LLM_API_KEY:-}
+    volumes:
+      - ./deploy/netwatch.toml:/etc/netwatch/netwatch.toml:ro
+      - netwatch-data:/var/lib/netwatch
+      # The temps request-line socket (and the control socket), root-only.
+      - /run/netwatch:/run/netwatch
+
+volumes:
+  netwatch-data:

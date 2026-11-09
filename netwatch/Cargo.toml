@@ -1,0 +1,57 @@
+[package]
+name = "netwatch"
+version = "0.1.0"
+edition.workspace = true
+
+license.workspace = true
+
+[dependencies]
+netwatch-common = { path = "../netwatch-common" }
+
+anyhow = { workspace = true, default-features = true }
+env_logger = { workspace = true, features = ["auto-color", "humantime"] }
+libc = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "signal",
+    "time",
+    "sync",
+    "process",
+    "io-util",
+] }
+clap = { workspace = true, features = ["derive", "help", "usage", "error-context", "env"] }
+
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+humantime = "2"
+ipnet = { version = "2", features = ["serde"] }
+maxminddb = "0.32"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+
+# The eBPF programs and their loader are Linux-only; macOS captures with /dev/bpf.
+[target.'cfg(target_os = "linux")'.dependencies]
+netwatch-common = { path = "../netwatch-common", features = ["user"] }
+aya = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true }
+cargo_metadata = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+aya-build = { workspace = true }
+# Not used directly: declared so cargo rebuilds when the eBPF crate changes
+# (build.rs compiles it with aya-build).
+netwatch-ebpf = { path = "../netwatch-ebpf" }
+
+[[bin]]
+name = "netwatch"
+path = "src/main.rs"

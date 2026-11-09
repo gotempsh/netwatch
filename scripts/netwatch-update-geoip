@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Downloads the free DB-IP Lite city and ASN databases (MaxMind mmdb format,
+# CC BY 4.0) into /var/lib/netwatch. netwatch reloads them when they change.
+# To use MaxMind GeoLite2 instead, point geoip_city/geoip_asn at those files.
+set -euo pipefail
+
+DIR=${NETWATCH_GEOIP_DIR:-/var/lib/netwatch}
+mkdir -p "$DIR"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+for kind in city asn; do
+    ok=
+    # The new month's file appears a day or two in; fall back to last month.
+    for month in "$(date -u +%Y-%m)" "$(date -u -d "$(date -u +%Y-%m-15) -1 month" +%Y-%m)"; do
+        url="https://download.db-ip.com/free/dbip-$kind-lite-$month.mmdb.gz"
+        if curl -fsSL --retry 3 -o "$tmp/$kind.gz" "$url"; then
+            gunzip -c "$tmp/$kind.gz" >"$tmp/$kind.mmdb"
+            install -m 0644 "$tmp/$kind.mmdb" "$DIR/dbip-$kind-lite.mmdb.new"
+            mv -f "$DIR/dbip-$kind-lite.mmdb.new" "$DIR/dbip-$kind-lite.mmdb"
+            echo "updated dbip-$kind-lite ($month)"
+            ok=1
+            break
+        fi
+    done
+    [[ -n $ok ]] || { echo "failed to download dbip-$kind-lite" >&2; exit 1; }
+done

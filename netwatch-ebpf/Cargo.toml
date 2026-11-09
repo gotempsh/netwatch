@@ -1,0 +1,16 @@
+[package]
+name = "netwatch-ebpf"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+netwatch-common = { path = "../netwatch-common" }
+
+aya-ebpf = { workspace = true }
+
+[build-dependencies]
+which = { workspace = true }
+
+[[bin]]
+name = "netwatch"
+path = "src/main.rs"

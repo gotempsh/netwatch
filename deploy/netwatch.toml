@@ -1,0 +1,20 @@
+# netwatch settings for the container (docker-compose.yml mounts this file).
+# Anything not set here keeps its default; `docker compose run --rm netwatch
+# default-config` prints them all.
+
+# XDP attaches to the default-route interface unless you name one.
+interface = "auto"
+# observe: detect and propose bans for review. enforce: ban automatically.
+mode = "observe"
+# The read-only UI and JSON API. Keep it on loopback; reach it over SSH or Tailscale.
+api_listen = "127.0.0.1:9180"
+
+# Request lines from temps on this host (its proxy sees inside HTTPS).
+# On by default; with nothing sending, it costs nothing.
+[temps]
+enabled = true
+socket = "/run/netwatch/requests.sock"
+
+# Posts to Slack when NETWATCH_SLACK_WEBHOOK is set in the environment.
+[slack]
+enabled = true

@@ -1,0 +1,3 @@
+# `cargo run` and `cargo test` load eBPF programs, which needs root.
+[target.'cfg(target_os = "linux")']
+runner = "sudo -E"

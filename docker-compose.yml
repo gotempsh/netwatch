@@ -4,14 +4,15 @@
 # is /run/netwatch, so temps on the host can reach the request-line socket.
 # The UI and API stay on 127.0.0.1:9180 (no published ports).
 #
-#   docker compose up -d --build
+#   docker compose up -d            # pulls ghcr.io/gotempsh/netwatch
+#   docker compose up -d --build    # or builds it from this checkout
 #   docker compose exec netwatch netwatch status
 #
 # One copy per server: XDP allows a single program per interface.
 services:
   netwatch:
+    image: ghcr.io/gotempsh/netwatch:latest
     build: .
-    image: netwatch:latest
     restart: unless-stopped
     network_mode: host
     pid: host

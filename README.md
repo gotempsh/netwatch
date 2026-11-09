@@ -138,12 +138,15 @@ XDP attaches in native driver mode when the NIC supports it, and falls back to g
 
 ### Docker Compose
 
-The image builds everything, including the UI and the eBPF programs, so the server only needs Docker:
+Each release publishes a multi-arch image (`linux/amd64`, `linux/arm64`) to `ghcr.io/gotempsh/netwatch`, tagged with the version and `latest`. The server only needs Docker and two files from this repository, `docker-compose.yml` and `deploy/netwatch.toml`:
 
 ```shell
-docker compose up -d --build
+git clone https://github.com/gotempsh/netwatch && cd netwatch
+docker compose up -d
 docker compose exec netwatch netwatch status
 ```
+
+`docker compose up -d --build` builds the image from the checkout instead, including the UI and the eBPF programs. To pin a version, change `image:` to `ghcr.io/gotempsh/netwatch:0.1.0`.
 
 netwatch watches the host it runs on, so `docker-compose.yml` gives the container:
 

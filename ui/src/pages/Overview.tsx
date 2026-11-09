@@ -124,32 +124,34 @@ function FlowsCard({ o }: { o: OverviewData }) {
         </div>
       )}
       {o.interfaces?.length > 0 && (
-        <table className="tbl tbl-compact tbl-inset">
-          <thead>
-            <tr>
-              <th>Interface</th>
-              <th>Kind</th>
-              <th>Monitoring</th>
-              <th className="num">RX</th>
-              <th className="num">TX</th>
-            </tr>
-          </thead>
-          <tbody>
-            {o.interfaces.map((i) => (
-              <tr key={i.name}>
-                <td className="mono">
-                  <a href={`#/connections?iface=${encodeURIComponent(i.name)}`}>{i.name}</a>
-                </td>
-                <td>
-                  <IfKindBadge kind={i.kind} />
-                </td>
-                <td className="small">{[i.xdp ? (mac ? "accounting" : "XDP") : null, i.flows ? "flows" : null].filter(Boolean).join(" + ") || <span className="muted">–</span>}</td>
-                <td className="num">{fmtBits(i.rx_bps)}</td>
-                <td className="num">{fmtBits(i.tx_bps)}</td>
+        <div className="scroll-x tbl-inset">
+          <table className="tbl tbl-compact">
+            <thead>
+              <tr>
+                <th>Interface</th>
+                <th>Kind</th>
+                <th>Monitoring</th>
+                <th className="num">RX</th>
+                <th className="num">TX</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {o.interfaces.map((i) => (
+                <tr key={i.name}>
+                  <td className="mono">
+                    <a href={`#/connections?iface=${encodeURIComponent(i.name)}`}>{i.name}</a>
+                  </td>
+                  <td>
+                    <IfKindBadge kind={i.kind} />
+                  </td>
+                  <td className="small">{[i.xdp ? (mac ? "accounting" : "XDP") : null, i.flows ? "flows" : null].filter(Boolean).join(" + ") || <span className="muted">–</span>}</td>
+                  <td className="num">{fmtBits(i.rx_bps)}</td>
+                  <td className="num">{fmtBits(i.tx_bps)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <div className="card-foot-link small">
         <a href="#/interfaces">Interface details</a>

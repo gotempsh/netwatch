@@ -56,6 +56,8 @@ export default function App() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    // On narrow screens the nav scrolls sideways; keep the current page in view.
+    document.querySelector(".nav a.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [route.path]);
 
   const pending = ov.data?.counts.proposals_pending ?? 0;

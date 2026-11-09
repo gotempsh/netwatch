@@ -1110,3 +1110,16 @@ code.json {
   gap: 4px;
   padding: 0 14px 8px;
 }
+
+/* Phones: card titles get the full width, and actions that don't fit (filters,
+   commands) scroll sideways instead of widening the page. */
+@media (max-width: 760px) {
+  .card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .card-actions {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}

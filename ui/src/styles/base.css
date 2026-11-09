@@ -344,9 +344,21 @@ button {
   .main {
     padding: 12px;
   }
+  /* Brand and status on the first row, the nav as a full-width scrolling strip
+     below, faded at the right edge so it reads as scrollable. */
   .topbar {
-    padding: 0 12px;
-    gap: 10px;
+    flex-wrap: wrap;
+    height: auto;
+    padding: 8px 12px 0;
+    gap: 6px 10px;
+  }
+  .nav {
+    order: 3;
+    flex: 1 0 100%;
+    margin: 0 -12px;
+    /* Right padding clears the fade, so the last item is readable when scrolled to the end. */
+    padding: 0 28px 6px 12px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
   .topbar-meta .mono {
     display: none;

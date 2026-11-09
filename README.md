@@ -136,33 +136,33 @@ To use MaxMind GeoLite2 instead, point `geoip_city` / `geoip_asn` at those `.mmd
 
 XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode otherwise. On some drivers (igb, ixgbe, …), attaching resets the link for about 3 seconds.
 
-### Docker Compose
+### Docker
 
-Each release publishes a multi-arch image (`linux/amd64`, `linux/arm64`) to `ghcr.io/gotempsh/netwatch`, tagged with the version and `latest`. The server only needs Docker and two files from this repository, `docker-compose.yml` and `deploy/netwatch.toml`:
+Each release publishes a multi-arch image (`linux/amd64`, `linux/arm64`) to `ghcr.io/gotempsh/netwatch`, tagged with the version and `latest`. The server only needs Docker:
 
 ```shell
-git clone https://github.com/gotempsh/netwatch && cd netwatch
-docker compose up -d
-docker compose exec netwatch netwatch status
+docker run -d --name netwatch --restart unless-stopped --stop-timeout 30 \
+  --network host --pid host --privileged \
+  -v netwatch-data:/var/lib/netwatch -v /run/netwatch:/run/netwatch \
+  ghcr.io/gotempsh/netwatch:latest
+docker exec netwatch netwatch status
 ```
 
-`docker compose up -d --build` builds the image from the checkout instead, including the UI and the eBPF programs. To pin a version, change `image:` to `ghcr.io/gotempsh/netwatch:0.1.0`.
+netwatch watches the host it runs on, so the container needs:
 
-netwatch watches the host it runs on, so `docker-compose.yml` gives the container:
+- `--network host`, to attach XDP/TC to the real interfaces (the UI stays on `127.0.0.1:9180`, no ports are published);
+- `--pid host`, to see which process or container owns each connection;
+- `--privileged`, for eBPF, tracepoints, and reading the host.
 
-- `network_mode: host`, to attach XDP/TC to the real interfaces (the UI stays on `127.0.0.1:9180`, no ports are published);
-- `pid: host`, to see which process or container owns each connection;
-- `privileged: true`, for eBPF, tracepoints, and reading the host.
+The `netwatch-data` volume keeps the database and the GeoIP data, which is downloaded on first start and refreshed monthly. `/run/netwatch` holds its sockets, so [temps](#temps) on the host can reach it; leave that mount out if you don't run temps. netwatch reads host files through `/proc/1/root` and runs the host's own `sshd -T`, `journalctl`, `ip`, `wg` and `tailscale` inside the host's mount namespace, so the image doesn't carry them and sees the host's real configuration. Run state-changing commands with `docker exec netwatch netwatch approve 7`.
 
-The only host path mounted is `/run/netwatch`, for its sockets (the [temps](#temps) socket and the control socket). netwatch reads host files through `/proc/1/root` and runs the host's own `sshd -T`, `journalctl`, `ip`, `wg` and `tailscale` inside the host's mount namespace, so the image doesn't carry them and sees the host's real configuration. GeoIP data is downloaded into the `netwatch-data` volume on first start and refreshed monthly.
+Without a config file it runs with the defaults: the default-route interface, `observe` mode. To change settings, write a file (`docker run --rm ghcr.io/gotempsh/netwatch default-config` prints them all), mount it with `-v /etc/netwatch/netwatch.toml:/etc/netwatch/netwatch.toml:ro`, and pass `NETWATCH_SLACK_WEBHOOK` or `NETWATCH_LLM_API_KEY` with `-e` when you enable `[slack]` or `[llm]` in it.
 
-Settings live in `deploy/netwatch.toml`. `interface = "auto"` picks the default-route interface. Pass `NETWATCH_SLACK_WEBHOOK` and `NETWATCH_LLM_API_KEY` as environment variables.
+`docker-compose.yml` runs the same container with [`deploy/netwatch.toml`](deploy/netwatch.toml) mounted (`docker compose up -d`, or `--build` to build the image from a checkout).
 
-Run one copy per server: an interface takes one XDP program, so stop the old container before starting a new one. `docker compose up` already works that way. If a platform starts the new copy first, the new one fails to attach and keeps restarting until the old one exits.
+Run one copy per server: an interface takes one XDP program, so stop the old container before starting a new one. If a platform starts the new copy first, the new one fails to attach and keeps restarting until the old one exits. On a platform with security policies for containers (such as Temps), an administrator has to allow privileged containers, host networking and the host PID namespace.
 
-On a platform with security policies for Compose projects (such as Temps), an administrator has to allow privileged containers, host networking and the host PID namespace for this project.
-
-`sudo IMAGE=netwatch:latest scripts/e2e-netns.sh` runs the end-to-end test against the image.
+`sudo IMAGE=ghcr.io/gotempsh/netwatch:latest scripts/e2e-netns.sh` runs the end-to-end test against the image.
 
 ### macOS
 

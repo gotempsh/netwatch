@@ -9,12 +9,10 @@ netwatch counts every packet in the kernel with eBPF/XDP and keeps a record of e
 ![Overview: live rates, active bans, pending proposals and insights](/screenshots/overview.png "The Overview page. Screenshots in these docs use the UI's built-in demo data.")
 
 ```shell
-a=netwatch-linux-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/scripts/install.sh
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-That installs a systemd service in **observe** mode: it watches and proposes, and blocks nothing until you approve. [Installation](/installation) covers Docker, macOS and building from source.
+That installs a systemd service (a launchd daemon on macOS) in **observe** mode: it watches and proposes, and blocks nothing until you approve. [Installation](/installation) covers Docker, macOS and building from source.
 
 ## What it does
 

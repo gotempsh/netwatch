@@ -101,15 +101,23 @@ The screenshots use the UI's demo data. To click through it without installing a
 
 netwatch needs root and Linux 5.8 or newer (6.6 or newer attaches the TC programs with TCX; older kernels use a clsact qdisc).
 
-Download a [release](https://github.com/gotempsh/netwatch/releases) for x86_64 or aarch64 (built against glibc 2.35: Debian 12, Ubuntu 22.04, RHEL 10 or newer) and install it as a systemd service:
+Install the latest [release](https://github.com/gotempsh/netwatch/releases) as a systemd service (x86_64 or aarch64, built against glibc 2.35: Debian 12, Ubuntu 22.04, RHEL 10 or newer):
 
 ```shell
-a=netwatch-linux-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/scripts/install.sh
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-Each release lists `SHA256SUMS` and a build provenance attestation (`gh attestation verify $a.tar.gz -R gotempsh/netwatch`).
+The script picks the archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`. Running it again upgrades netwatch and keeps your configuration. `NETWATCH_VERSION=v0.1.0` installs a specific release.
+
+To do the same by hand (use `aarch64` on ARM):
+
+```shell
+curl -fsSLO https://github.com/gotempsh/netwatch/releases/latest/download/netwatch-linux-x86_64.tar.gz
+tar xzf netwatch-linux-x86_64.tar.gz
+sudo netwatch-linux-x86_64/scripts/install.sh
+```
+
+Each release also has a build provenance attestation: `gh attestation verify netwatch-linux-x86_64.tar.gz -R gotempsh/netwatch`.
 
 To build from source instead, you need:
 
@@ -130,7 +138,7 @@ sudo scripts/install.sh
 `install.sh` does the following:
 
 - copies the binary to `/usr/local/bin`;
-- writes `/etc/netwatch/netwatch.toml` (only if it doesn't exist), using the interface that carries your default route;
+- writes `/etc/netwatch/netwatch.toml` (only if it doesn't exist), with `interface = "auto"`: the interface that carries the default route;
 - downloads the free [DB-IP Lite](https://db-ip.com/db/lite.php) city and ASN databases (CC BY 4.0) and enables a monthly timer that refreshes them;
 - starts `netwatch.service` in **observe** mode.
 
@@ -180,15 +188,13 @@ The same binary, UI, CLI, detection and ban policy run on macOS (developed on ma
 | SSH logins | journald | the unified log (`log stream`) |
 | Service | systemd | launchd |
 
-Download a release (Apple Silicon or Intel) and install it as a launchd daemon:
+The same command installs it as a launchd daemon (Apple Silicon or Intel):
 
 ```shell
-a=netwatch-macos-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/netwatch install
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-The binary isn't notarized yet. `curl` doesn't mark it as downloaded, so Gatekeeper lets it run; a copy downloaded with a browser needs `xattr -d com.apple.quarantine netwatch` first.
+The binary isn't notarized yet. `curl` doesn't mark it as downloaded, so Gatekeeper lets it run; a copy downloaded with a browser needs `xattr -d com.apple.quarantine netwatch` first. By hand, unpack `netwatch-macos-arm64.tar.gz` (or `-x86_64`) and run `sudo netwatch-macos-arm64/netwatch install`.
 
 Or build from source (no eBPF toolchain needed):
 

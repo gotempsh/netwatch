@@ -5,9 +5,9 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["site/**", "netwatch/Cargo.toml", ".github/workflows/docs.yml"]
+    paths: ["site/**", "scripts/get.sh", "netwatch/Cargo.toml", ".github/workflows/docs.yml"]
   pull_request:
-    paths: ["site/**", ".github/workflows/docs.yml"]
+    paths: ["site/**", "scripts/get.sh", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:

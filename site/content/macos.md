@@ -8,14 +8,20 @@ The same binary, UI, CLI, detection and ban policy run on macOS (developed on ma
 ## Install
 
 ```shell
-a=netwatch-macos-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/netwatch install
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
+```
+
+Or by hand, with `x86_64` instead of `arm64` on an Intel Mac:
+
+```shell
+curl -fsSLO https://github.com/gotempsh/netwatch/releases/latest/download/netwatch-macos-arm64.tar.gz
+tar xzf netwatch-macos-arm64.tar.gz
+sudo netwatch-macos-arm64/netwatch install
 ```
 
 The binary isn't notarized yet. `curl` doesn't mark it as downloaded, so Gatekeeper lets it run. A copy downloaded with a browser needs `xattr -d com.apple.quarantine netwatch` first.
 
-`install`:
+`netwatch install`, which the install script runs:
 
 - copies the binary to `/usr/local/bin/netwatch`;
 - writes `/etc/netwatch/netwatch.toml` if it doesn't exist;

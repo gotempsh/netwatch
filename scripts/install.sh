@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Installs netwatch as a systemd service, from a release archive or a build:
+# Installs netwatch as a systemd service from an unpacked release or a build:
 #   sudo netwatch-linux-x86_64/scripts/install.sh
 #   cargo build --release && sudo scripts/install.sh
-# An optional argument names the binary. An existing /etc/netwatch/netwatch.toml is kept.
+# scripts/get.sh downloads a release and runs this. An optional argument names
+# the binary. An existing /etc/netwatch/netwatch.toml is kept.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
@@ -20,20 +21,26 @@ install -m 0755 "$BIN" /usr/local/bin/netwatch
 install -m 0755 scripts/netwatch-update-geoip /usr/local/bin/netwatch-update-geoip
 install -m 0644 scripts/systemd/netwatch.service scripts/systemd/netwatch-update-geoip.service \
     scripts/systemd/netwatch-update-geoip.timer /etc/systemd/system/
+echo "installed /usr/local/bin/netwatch ($(/usr/local/bin/netwatch --version))"
 
 install -d -m 0755 /etc/netwatch
 install -d -m 0750 /var/lib/netwatch
 if [[ ! -e /etc/netwatch/netwatch.toml ]]; then
     /usr/local/bin/netwatch default-config >/etc/netwatch/netwatch.toml
-    iface=$(ip -j route show default | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["dev"] if r else "")')
-    [[ -n $iface ]] && sed -i "s/^interface = .*/interface = \"$iface\"/" /etc/netwatch/netwatch.toml
-    echo "wrote /etc/netwatch/netwatch.toml (interface = ${iface:-eno1}, mode = observe)"
+    echo "wrote /etc/netwatch/netwatch.toml (interface = auto, mode = observe)"
 fi
-[[ -e /var/lib/netwatch/dbip-city-lite.mmdb ]] || /usr/local/bin/netwatch-update-geoip || true
+[[ -e /var/lib/netwatch/dbip-city-lite.mmdb ]] || /usr/local/bin/netwatch-update-geoip \
+    || echo "GeoIP download failed; netwatch runs without locations until netwatch-update-geoip works" >&2
 
 systemctl daemon-reload
-systemctl enable --now netwatch-update-geoip.timer
-systemctl enable netwatch.service
+systemctl enable --quiet --now netwatch-update-geoip.timer
+systemctl enable --quiet netwatch.service
 systemctl restart netwatch.service
 sleep 3
-systemctl --no-pager --lines=8 status netwatch.service
+if ! systemctl is-active --quiet netwatch.service; then
+    systemctl --no-pager --lines=15 status netwatch.service >&2 || true
+    echo "netwatch.service did not start; see: journalctl -u netwatch" >&2
+    exit 1
+fi
+echo "started netwatch.service; logs: journalctl -u netwatch"
+echo "UI: ssh -L 9180:127.0.0.1:9180 <this host>, then http://127.0.0.1:9180  ·  CLI: netwatch status"

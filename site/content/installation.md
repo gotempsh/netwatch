@@ -9,20 +9,44 @@ description: Install netwatch from a release on Linux, run the container image, 
 - **Root.** netwatch loads eBPF programs and reads every process's sockets.
 - Or **macOS** on Apple Silicon or Intel. See [macOS](/macos).
 
-## Linux release
+## Install script
 
-Download the release for your architecture and install it as a systemd service:
+On Linux and macOS:
 
 ```shell
-a=netwatch-linux-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/scripts/install.sh
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-`install.sh`:
+The script picks the release archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`: a systemd service on Linux, a launchd daemon on macOS. Running it again upgrades netwatch and keeps your configuration.
+
+To install a specific release:
+
+```shell
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | NETWATCH_VERSION=v0.1.0 sh
+```
+
+The script is [`scripts/get.sh`](https://github.com/gotempsh/netwatch/blob/main/scripts/get.sh) in the repository. To read it before running it:
+
+```shell
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+## Linux, by hand
+
+Download the archive for your architecture (`x86_64` or `aarch64`), unpack it and run its installer:
+
+```shell
+curl -fsSLO https://github.com/gotempsh/netwatch/releases/latest/download/netwatch-linux-x86_64.tar.gz
+tar xzf netwatch-linux-x86_64.tar.gz
+sudo netwatch-linux-x86_64/scripts/install.sh
+```
+
+The installer (the install script runs the same one):
 
 - copies the binary to `/usr/local/bin`;
-- writes `/etc/netwatch/netwatch.toml` (only if it doesn't exist), using the interface that carries your default route;
+- writes `/etc/netwatch/netwatch.toml` (only if it doesn't exist), with `interface = "auto"`: the interface that carries the default route;
 - downloads the free [DB-IP Lite](https://db-ip.com/db/lite.php) city and ASN databases (CC BY 4.0) and enables a monthly timer that refreshes them;
 - starts `netwatch.service` in **observe** mode.
 
@@ -37,10 +61,10 @@ XDP attaches in native driver mode when the NIC supports it, and falls back to g
 
 ### Verify the download
 
-Each release lists `SHA256SUMS` and a build provenance attestation, so you can check that an archive was built by this repository's release workflow:
+Each release has `SHA256SUMS`, which the install script checks, and a build provenance attestation, which shows that an archive was built by this repository's release workflow:
 
 ```shell
-gh attestation verify $a.tar.gz -R gotempsh/netwatch
+gh attestation verify netwatch-linux-x86_64.tar.gz -R gotempsh/netwatch
 ```
 
 ### GeoIP databases
@@ -60,13 +84,7 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`). [Docker](/docker) explai
 
 ## macOS
 
-```shell
-a=netwatch-macos-$(uname -m)
-curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
-sudo $a/netwatch install
-```
-
-This installs a launchd daemon. [macOS](/macos) covers what differs from Linux.
+The [install script](#install-script) works on macOS too. [macOS](/macos) covers installing by hand and what differs from Linux.
 
 ## From source
 

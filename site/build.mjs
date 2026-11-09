@@ -253,6 +253,8 @@ fs.mkdirSync(path.join(OUT, "fonts"), { recursive: true });
 fs.cpSync(path.join(ROOT, "public"), OUT, { recursive: true });
 fs.copyFileSync(path.join(ROOT, "assets/style.css"), path.join(OUT, "style.css"));
 fs.copyFileSync(path.join(ROOT, "assets/app.js"), path.join(OUT, "app.js"));
+// The one-line installer: curl -fsSL <site>/install.sh | sh
+fs.copyFileSync(path.join(ROOT, "../scripts/get.sh"), path.join(OUT, "install.sh"));
 const fonts = path.join(ROOT, "node_modules/geist/dist/fonts");
 fs.copyFileSync(path.join(fonts, "geist-sans/Geist-Variable.woff2"), path.join(OUT, "fonts/Geist-Variable.woff2"));
 fs.copyFileSync(path.join(fonts, "geist-mono/GeistMono-Variable.woff2"), path.join(OUT, "fonts/GeistMono-Variable.woff2"));

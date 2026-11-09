@@ -58,10 +58,21 @@ impl Otel {
     /// Builds the exporters when `[otel]` is enabled. Bad settings are logged and
     /// leave export off rather than stopping the daemon.
     pub fn start(cfg: &OtelConfig, host: &str, warn_score: u32) -> Option<Self> {
+        let headers = std::env::var(&cfg.headers_env).ok();
+        Self::start_with(cfg, headers.as_deref(), host, warn_score)
+    }
+
+    /// `start` with the value of `headers_env` passed in.
+    fn start_with(
+        cfg: &OtelConfig,
+        headers: Option<&str>,
+        host: &str,
+        warn_score: u32,
+    ) -> Option<Self> {
         if !cfg.enabled || !(cfg.metrics || cfg.logs) {
             return None;
         }
-        match Self::build(cfg, host, warn_score) {
+        match Self::build(cfg, headers, host, warn_score) {
             Ok(o) => {
                 let what = match (cfg.metrics, cfg.logs) {
                     (true, true) => "metrics and events",
@@ -78,10 +89,15 @@ impl Otel {
         }
     }
 
-    fn build(cfg: &OtelConfig, host: &str, warn_score: u32) -> anyhow::Result<Self> {
-        let headers = match std::env::var(&cfg.headers_env) {
-            Ok(v) => parse_headers(&v, &cfg.headers_env)?,
-            Err(_) => HashMap::new(),
+    fn build(
+        cfg: &OtelConfig,
+        headers: Option<&str>,
+        host: &str,
+        warn_score: u32,
+    ) -> anyhow::Result<Self> {
+        let headers = match headers {
+            Some(v) => parse_headers(v, &cfg.headers_env)?,
+            None => HashMap::new(),
         };
         let resource = Resource::builder()
             .with_service_name("netwatch")
@@ -683,30 +699,11 @@ fn parse_headers(s: &str, var: &str) -> anyhow::Result<HashMap<String, String>> 
                 n + 1
             )
         })?;
-        out.insert(k.trim().to_string(), percent_decode(v.trim()));
+        // Still percent-encoded: the exporter's with_headers decodes values,
+        // and decoding here too would turn a literal `%3D` into `=`.
+        out.insert(k.trim().to_string(), v.trim().to_string());
     }
     Ok(out)
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%'
-            && let (Some(hi), Some(lo)) = (
-                b.get(i + 1).and_then(|c| (*c as char).to_digit(16)),
-                b.get(i + 2).and_then(|c| (*c as char).to_digit(16)),
-            )
-        {
-            out.push((hi * 16 + lo) as u8);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 // ---- metrics snapshot ----
@@ -954,7 +951,7 @@ mod tests {
             "H",
         )
         .unwrap();
-        assert_eq!(h["Authorization"], "Basic dXNlcjpwdw==");
+        assert_eq!(h["Authorization"], "Basic%20dXNlcjpwdw==");
         assert_eq!(h["x-scope-orgid"], "tenant1");
         let err = parse_headers(
             "x=1,Authorization: Bearer s3cret",
@@ -963,15 +960,12 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("entry 2") && !err.contains("s3cret"), "{err}");
-        assert_eq!(percent_decode("a%2"), "a%2");
-        assert_eq!(percent_decode("%41%7e%"), "A~%");
-        // Non-ASCII right after '%' is kept as is, not sliced through.
-        assert_eq!(percent_decode("tok%Aé"), "tok%Aé");
-        assert_eq!(percent_decode("t=%€x"), "t=%€x");
+        // Not decoded here, so nothing to trip over.
+        assert_eq!(parse_headers("t=tok%Aé", "H").unwrap()["t"], "tok%Aé");
     }
 
-    /// Accepts OTLP/HTTP requests and keeps (path, content type, body).
-    type Requests = Arc<Mutex<Vec<(String, String, Vec<u8>)>>>;
+    /// Accepts OTLP/HTTP requests and keeps (path, content type, x-test-key, body).
+    type Requests = Arc<Mutex<Vec<(String, String, String, Vec<u8>)>>>;
 
     fn receiver() -> (String, Requests) {
         use std::io::{BufRead, BufReader, Read, Write};
@@ -991,7 +985,7 @@ mod tests {
                             return;
                         }
                         let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
-                        let (mut len, mut ctype) = (0, String::new());
+                        let (mut len, mut ctype, mut key) = (0, String::new(), String::new());
                         loop {
                             let mut h = String::new();
                             r.read_line(&mut h).unwrap();
@@ -1003,12 +997,13 @@ mod tests {
                             match k.to_ascii_lowercase().as_str() {
                                 "content-length" => len = v.trim().parse().unwrap(),
                                 "content-type" => ctype = v.trim().to_string(),
+                                "x-test-key" => key = v.trim().to_string(),
                                 _ => {}
                             }
                         }
                         let mut body = vec![0; len];
                         r.read_exact(&mut body).unwrap();
-                        seen.lock().unwrap().push((path, ctype, body));
+                        seen.lock().unwrap().push((path, ctype, key, body));
                         conn.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
                             .unwrap();
                     }
@@ -1028,10 +1023,12 @@ mod tests {
         let cfg = OtelConfig {
             enabled: true,
             endpoint: url,
-            headers_env: "NETWATCH_TEST_NO_SUCH_VAR".into(),
+            headers_env: "NETWATCH_OTLP_HEADERS".into(),
             ..Default::default()
         };
-        let o = Otel::start(&cfg, "edge-01", 70).expect("exporter");
+        // A key holding a literal `%3D`, encoded as the variable wants it.
+        let o = Otel::start_with(&cfg, Some("X-Test-Key=ab%253Dcd%20x"), "edge-01", 70)
+            .expect("exporter");
         o.finding(&AlertDue {
             ip: "203.0.113.9".into(),
             kind: "port_scan",
@@ -1082,15 +1079,19 @@ mod tests {
         o.shutdown();
 
         let got = got.lock().unwrap();
-        let logs: Vec<_> = got.iter().filter(|(p, _, _)| p == "/v1/logs").collect();
-        let metrics: Vec<_> = got.iter().filter(|(p, _, _)| p == "/v1/metrics").collect();
+        let logs: Vec<_> = got.iter().filter(|(p, ..)| p == "/v1/logs").collect();
+        let metrics: Vec<_> = got.iter().filter(|(p, ..)| p == "/v1/metrics").collect();
         assert!(
             !logs.is_empty() && !metrics.is_empty(),
             "requests: {:?}",
             got.iter().map(|g| &g.0).collect::<Vec<_>>()
         );
         assert_eq!(logs[0].1, "application/x-protobuf");
-        let all: Vec<u8> = logs.iter().flat_map(|(_, _, b)| b.clone()).collect();
+        // Decoded once, by the exporter.
+        for (path, _, key, _) in got.iter() {
+            assert_eq!(key, "ab%3Dcd x", "{path}");
+        }
+        let all: Vec<u8> = logs.iter().flat_map(|(.., b)| b.clone()).collect();
         for s in [
             "netwatch.finding",
             "source.address",
@@ -1110,7 +1111,7 @@ mod tests {
         assert!(
             metrics
                 .iter()
-                .any(|(_, _, b)| contains(b, "netwatch.connects.failed"))
+                .any(|(.., b)| contains(b, "netwatch.connects.failed"))
         );
     }
 

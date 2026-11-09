@@ -290,6 +290,23 @@ pub struct Listener {
     /// The `listen` event went out (or the socket predates netwatch).
     #[serde(skip)]
     announced: bool,
+    /// The address the last `listen` event named; `unlisten` names it too.
+    #[serde(skip)]
+    shown: Option<IpAddr>,
+}
+
+/// How exposed an address is: wildcard, then public, then anything but
+/// loopback, then loopback.
+fn exposure(a: IpAddr) -> u8 {
+    if a.is_unspecified() {
+        3
+    } else if crate::util::is_public(a) {
+        2
+    } else if !a.is_loopback() {
+        1
+    } else {
+        0
+    }
 }
 
 impl Listener {
@@ -297,19 +314,12 @@ impl Listener {
     /// then any non-loopback), so a socket on 127.0.0.1 and a public address
     /// reads, and alerts, as public.
     pub fn shown_addr(&self) -> Option<IpAddr> {
-        let rank = |a: &IpAddr| {
-            if a.is_unspecified() {
-                3
-            } else if crate::util::is_public(*a) {
-                2
-            } else if !a.is_loopback() {
-                1
-            } else {
-                0
-            }
-        };
         // max_by_key keeps the last of equals; rev() makes it the first.
-        self.addrs.iter().rev().copied().max_by_key(rank)
+        self.addrs
+            .iter()
+            .rev()
+            .copied()
+            .max_by_key(|a| exposure(*a))
     }
 
     fn new(proto: u8, port: u16, owner: Option<Owner>, since: i64, eph: (u16, u16)) -> Self {
@@ -334,6 +344,7 @@ impl Listener {
             },
             socks: BTreeMap::new(),
             announced: false,
+            shown: None,
         }
     }
 
@@ -947,17 +958,21 @@ impl FlowTable {
                     .listeners
                     .entry((PROTO_TCP, ev.lport))
                     .or_insert_with(|| {
-                        let mut l =
-                            Listener::new(PROTO_TCP, ev.lport, owner.clone(), now, self.eph);
-                        l.announced = true; // the event below
-                        l
+                        Listener::new(PROTO_TCP, ev.lport, owner.clone(), now, self.eph)
                     });
                 l.addrs.insert(addr);
                 if let Some(o) = &owner {
                     l.by_addr.insert(addr, o.clone());
                 }
                 l.exposed |= !addr.is_loopback();
-                if new {
+                // Announced when new, and again when a later listen() on the
+                // port binds a more exposed address (127.0.0.1, then 10.0.0.5).
+                let announce = new || l.shown.is_some_and(|s| exposure(addr) > exposure(s));
+                if announce {
+                    l.announced = true;
+                    l.shown = Some(addr);
+                }
+                if announce {
                     let detail = format!(
                         "{} listening on {}:{}",
                         owner_label(&owner),
@@ -996,7 +1011,7 @@ impl FlowTable {
                         ts: now,
                         kind: "unlisten",
                         proto: "tcp",
-                        local: key_to_ip(ev.local).to_string(),
+                        local: l.shown.unwrap_or(addr).to_string(),
                         lport: ev.lport,
                         remote: None,
                         rport: None,
@@ -1177,7 +1192,11 @@ impl FlowTable {
                 ts: now,
                 kind: "unlisten",
                 proto: l.proto,
-                local: l.shown_addr().map(|a| a.to_string()).unwrap_or_default(),
+                local: l
+                    .shown
+                    .or_else(|| l.shown_addr())
+                    .map(|a| a.to_string())
+                    .unwrap_or_default(),
                 lport: l.port,
                 remote: None,
                 rport: None,
@@ -1237,6 +1256,7 @@ impl FlowTable {
         for k in due {
             let l = self.listeners.get_mut(&k).expect("present");
             l.announced = true;
+            l.shown = l.shown_addr();
             let l = l.clone();
             self.listen_event(&l, now);
         }
@@ -2888,6 +2908,47 @@ mod tests {
         assert!(t.dns_seen.is_empty());
         t.prune(1000 + DNS_FLOW_TTL + 1);
         assert!(t.dns_flow.is_empty());
+    }
+
+    #[test]
+    fn live_listeners_announce_their_most_exposed_address() {
+        let mut t = table();
+        t.host_addrs.insert("10.0.0.5".parse().unwrap());
+        let clock = BootClock::new();
+        let ev = |sk: u64, l: &str, old: u8, new: u8| SockEvent {
+            ts_ns: 1,
+            skaddr: sk,
+            local: ip_to_key(l.parse().unwrap()),
+            remote: ip_to_key("0.0.0.0".parse().unwrap()),
+            comm: *b"postgres\0\0\0\0\0\0\0\0",
+            pid: 0,
+            lport: 5432,
+            rport: 0,
+            oldstate: old,
+            newstate: new,
+            _pad: [0; 6],
+        };
+        // listen_addresses = 'localhost, 10.0.0.5': loopback binds first.
+        for (sk, a) in [(1, "127.0.0.1"), (2, "10.0.0.5"), (3, "::1")] {
+            t.observe_sock(&ev(sk, a, CLOSE, LISTEN), &clock, 100);
+        }
+        // The loopback socket closes last.
+        for (sk, a) in [(2, "10.0.0.5"), (3, "::1"), (1, "127.0.0.1")] {
+            t.observe_sock(&ev(sk, a, LISTEN, CLOSE), &clock, 200);
+        }
+        let got: Vec<(&str, &str)> = t
+            .events
+            .iter()
+            .map(|e| (e.kind, e.local.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("listen", "127.0.0.1"),
+                ("listen", "10.0.0.5"),
+                ("unlisten", "10.0.0.5")
+            ]
+        );
     }
 
     #[test]

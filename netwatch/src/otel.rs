@@ -10,7 +10,7 @@
 //! collector can't keep up.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     sync::{Arc, Mutex, Weak},
     time::{Duration, Instant, SystemTime},
 };
@@ -20,9 +20,7 @@ use opentelemetry::{
     logs::{AnyValue, LogRecord as _, Logger as _, LoggerProvider as _, Severity},
     metrics::{Counter, MeterProvider as _},
 };
-use opentelemetry_otlp::{
-    LogExporter, MetricExporter, Protocol, WithExportConfig as _, WithHttpConfig as _,
-};
+use opentelemetry_otlp::{LogExporter, MetricExporter, Protocol, WithExportConfig as _};
 use opentelemetry_sdk::{
     Resource,
     logs::{BatchConfigBuilder, BatchLogProcessor, SdkLogger, SdkLoggerProvider},
@@ -58,21 +56,10 @@ impl Otel {
     /// Builds the exporters when `[otel]` is enabled. Bad settings are logged and
     /// leave export off rather than stopping the daemon.
     pub fn start(cfg: &OtelConfig, host: &str, warn_score: u32) -> Option<Self> {
-        let headers = std::env::var(&cfg.headers_env).ok();
-        Self::start_with(cfg, headers.as_deref(), host, warn_score)
-    }
-
-    /// `start` with the value of `headers_env` passed in.
-    fn start_with(
-        cfg: &OtelConfig,
-        headers: Option<&str>,
-        host: &str,
-        warn_score: u32,
-    ) -> Option<Self> {
         if !cfg.enabled || !(cfg.metrics || cfg.logs) {
             return None;
         }
-        match Self::build(cfg, headers, host, warn_score) {
+        match Self::build(cfg, host, warn_score) {
             Ok(o) => {
                 let what = match (cfg.metrics, cfg.logs) {
                     (true, true) => "metrics and events",
@@ -89,16 +76,8 @@ impl Otel {
         }
     }
 
-    fn build(
-        cfg: &OtelConfig,
-        headers: Option<&str>,
-        host: &str,
-        warn_score: u32,
-    ) -> anyhow::Result<Self> {
-        let headers = match headers {
-            Some(v) => parse_headers(v, &cfg.headers_env)?,
-            None => HashMap::new(),
-        };
+    fn build(cfg: &OtelConfig, host: &str, warn_score: u32) -> anyhow::Result<Self> {
+        check_headers(cfg, |v| std::env::var(v).ok())?;
         let resource = Resource::builder()
             .with_service_name("netwatch")
             .with_attributes([
@@ -114,7 +93,6 @@ impl Otel {
                 .with_http()
                 .with_protocol(Protocol::HttpBinary)
                 .with_endpoint(signal_url(&cfg.endpoint, "logs")?)
-                .with_headers(headers.clone())
                 .with_timeout(timeout)
                 .build()?;
             let processor = BatchLogProcessor::builder(exporter)
@@ -141,7 +119,6 @@ impl Otel {
                 .with_http()
                 .with_protocol(Protocol::HttpBinary)
                 .with_endpoint(signal_url(&cfg.endpoint, "metrics")?)
-                .with_headers(headers)
                 .with_timeout(timeout)
                 .build()?;
             let reader = PeriodicReader::builder(exporter)
@@ -675,7 +652,6 @@ fn signal_url(endpoint: &str, signal: &str) -> anyhow::Result<String> {
     Ok(format!("{e}{path}"))
 }
 
-/// `OTEL_EXPORTER_OTLP_HEADERS` format: `key=value,key2=value2`, values percent-encoded.
 /// Exposed as the API and UI mean it (and `netwatch.listeners.exposed` counts
 /// it): bound to anything but loopback, LAN and wildcard addresses included.
 fn listener_exposed(local: &str) -> bool {
@@ -684,26 +660,64 @@ fn listener_exposed(local: &str) -> bool {
         .is_ok_and(|a| !a.is_loopback())
 }
 
-/// The error never quotes an entry: it may hold a token.
-fn parse_headers(s: &str, var: &str) -> anyhow::Result<HashMap<String, String>> {
-    let mut out = HashMap::new();
+/// The exporter reads the request headers itself, from the signal's own
+/// variable (`OTEL_EXPORTER_OTLP_LOGS_HEADERS`, `..._METRICS_HEADERS`) or else
+/// `OTEL_EXPORTER_OTLP_HEADERS`, and drops entries it can't parse without a
+/// word. This checks the same variables first, so a bad entry turns export off
+/// with an error instead of sending requests the backend rejects.
+fn check_headers(cfg: &OtelConfig, var: impl Fn(&str) -> Option<String>) -> anyhow::Result<()> {
+    const ALL: &str = "OTEL_EXPORTER_OTLP_HEADERS";
+    for (on, own) in [
+        (cfg.logs, "OTEL_EXPORTER_OTLP_LOGS_HEADERS"),
+        (cfg.metrics, "OTEL_EXPORTER_OTLP_METRICS_HEADERS"),
+    ] {
+        if !on {
+            continue;
+        }
+        if let Some((name, v)) = var(own)
+            .map(|v| (own, v))
+            .or_else(|| var(ALL).map(|v| (ALL, v)))
+        {
+            check_header_list(&v, name)?;
+        }
+    }
+    Ok(())
+}
+
+/// `key=value,key2=value2`, values percent-encoded. The error never quotes an
+/// entry: it may hold a token.
+fn check_header_list(s: &str, var: &str) -> anyhow::Result<()> {
     for (n, part) in s
         .split(',')
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .enumerate()
     {
-        let (k, v) = part.split_once('=').ok_or_else(|| {
+        let bad = |why: &str| {
             anyhow::anyhow!(
-                "${var}: entry {} is not key=value (write `Authorization=Bearer%20...`, not `Authorization: Bearer ...`)",
+                "${var}: entry {} {why} (write `Authorization=Bearer%20...`, not `Authorization: Bearer ...`)",
                 n + 1
             )
-        })?;
-        // Still percent-encoded: the exporter's with_headers decodes values,
-        // and decoding here too would turn a literal `%3D` into `=`.
-        out.insert(k.trim().to_string(), v.trim().to_string());
+        };
+        let (k, v) = part
+            .split_once('=')
+            .ok_or_else(|| bad("is not key=value"))?;
+        let k = k.trim();
+        // What the exporter's HeaderName and HeaderValue accept.
+        if k.is_empty()
+            || !k
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+        {
+            return Err(bad("has a name that isn't a valid header name"));
+        }
+        if !v.bytes().all(|b| b.is_ascii_graphic() || b == b' ') {
+            return Err(bad(
+                "has a value that isn't printable ASCII (percent-encode it)",
+            ));
+        }
     }
-    Ok(out)
+    Ok(())
 }
 
 // ---- metrics snapshot ----
@@ -946,26 +960,74 @@ mod tests {
 
     #[test]
     fn headers() {
-        let h = parse_headers(
+        check_header_list(
             "Authorization=Basic%20dXNlcjpwdw==, x-scope-orgid = tenant1,",
             "H",
         )
         .unwrap();
-        assert_eq!(h["Authorization"], "Basic%20dXNlcjpwdw==");
-        assert_eq!(h["x-scope-orgid"], "tenant1");
-        let err = parse_headers(
-            "x=1,Authorization: Bearer s3cret",
-            "OTEL_EXPORTER_OTLP_HEADERS",
+        let err = |s: &str| check_header_list(s, "H").unwrap_err().to_string();
+        let e = err("x=1,Authorization: Bearer s3cret");
+        assert!(e.contains("entry 2") && !e.contains("s3cret"), "{e}");
+        let e = err("Authorization Bearer=s3cret");
+        assert!(e.contains("header name") && !e.contains("s3cret"), "{e}");
+        let e = err("t=tok%Aé");
+        assert!(e.contains("printable") && !e.contains("tok"), "{e}");
+    }
+
+    #[test]
+    fn checks_the_variables_the_exporter_reads() {
+        fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+            let vars: Vec<(String, String)> = vars
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            move |k| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+        }
+        let cfg = OtelConfig::default();
+        assert!(check_headers(&cfg, env(&[])).is_ok());
+        let bad = "Authorization: Bearer s3cret";
+        let e = check_headers(&cfg, env(&[("OTEL_EXPORTER_OTLP_HEADERS", bad)]))
+            .unwrap_err()
+            .to_string();
+        assert!(e.starts_with("$OTEL_EXPORTER_OTLP_HEADERS:"), "{e}");
+        // A signal's own variable wins over the general one, as in the exporter.
+        let e = check_headers(
+            &cfg,
+            env(&[
+                ("OTEL_EXPORTER_OTLP_HEADERS", "a=1"),
+                ("OTEL_EXPORTER_OTLP_METRICS_HEADERS", bad),
+            ]),
         )
         .unwrap_err()
         .to_string();
-        assert!(err.contains("entry 2") && !err.contains("s3cret"), "{err}");
-        // Not decoded here, so nothing to trip over.
-        assert_eq!(parse_headers("t=tok%Aé", "H").unwrap()["t"], "tok%Aé");
+        assert!(e.starts_with("$OTEL_EXPORTER_OTLP_METRICS_HEADERS:"), "{e}");
+        assert!(
+            check_headers(
+                &cfg,
+                env(&[
+                    ("OTEL_EXPORTER_OTLP_HEADERS", bad),
+                    ("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "a=1"),
+                    ("OTEL_EXPORTER_OTLP_METRICS_HEADERS", "b=2"),
+                ])
+            )
+            .is_ok()
+        );
+        // Signals that are off aren't checked.
+        let metrics_only = OtelConfig {
+            logs: false,
+            ..Default::default()
+        };
+        assert!(
+            check_headers(
+                &metrics_only,
+                env(&[("OTEL_EXPORTER_OTLP_LOGS_HEADERS", bad)])
+            )
+            .is_ok()
+        );
     }
 
-    /// Accepts OTLP/HTTP requests and keeps (path, content type, x-test-key, body).
-    type Requests = Arc<Mutex<Vec<(String, String, String, Vec<u8>)>>>;
+    /// Accepts OTLP/HTTP requests and keeps (path, content type, body).
+    type Requests = Arc<Mutex<Vec<(String, String, Vec<u8>)>>>;
 
     fn receiver() -> (String, Requests) {
         use std::io::{BufRead, BufReader, Read, Write};
@@ -985,7 +1047,7 @@ mod tests {
                             return;
                         }
                         let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
-                        let (mut len, mut ctype, mut key) = (0, String::new(), String::new());
+                        let (mut len, mut ctype) = (0, String::new());
                         loop {
                             let mut h = String::new();
                             r.read_line(&mut h).unwrap();
@@ -997,13 +1059,12 @@ mod tests {
                             match k.to_ascii_lowercase().as_str() {
                                 "content-length" => len = v.trim().parse().unwrap(),
                                 "content-type" => ctype = v.trim().to_string(),
-                                "x-test-key" => key = v.trim().to_string(),
                                 _ => {}
                             }
                         }
                         let mut body = vec![0; len];
                         r.read_exact(&mut body).unwrap();
-                        seen.lock().unwrap().push((path, ctype, key, body));
+                        seen.lock().unwrap().push((path, ctype, body));
                         conn.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
                             .unwrap();
                     }
@@ -1023,12 +1084,9 @@ mod tests {
         let cfg = OtelConfig {
             enabled: true,
             endpoint: url,
-            headers_env: "NETWATCH_OTLP_HEADERS".into(),
             ..Default::default()
         };
-        // A key holding a literal `%3D`, encoded as the variable wants it.
-        let o = Otel::start_with(&cfg, Some("X-Test-Key=ab%253Dcd%20x"), "edge-01", 70)
-            .expect("exporter");
+        let o = Otel::start(&cfg, "edge-01", 70).expect("exporter");
         o.finding(&AlertDue {
             ip: "203.0.113.9".into(),
             kind: "port_scan",
@@ -1087,10 +1145,6 @@ mod tests {
             got.iter().map(|g| &g.0).collect::<Vec<_>>()
         );
         assert_eq!(logs[0].1, "application/x-protobuf");
-        // Decoded once, by the exporter.
-        for (path, _, key, _) in got.iter() {
-            assert_eq!(key, "ab%3Dcd x", "{path}");
-        }
         let all: Vec<u8> = logs.iter().flat_map(|(.., b)| b.clone()).collect();
         for s in [
             "netwatch.finding",

@@ -103,9 +103,6 @@ pub struct OtelConfig {
     pub enabled: bool,
     /// OTLP/HTTP endpoint; /v1/metrics and /v1/logs are appended.
     pub endpoint: String,
-    /// Environment variable holding extra request headers as `key=value,key2=value2`,
-    /// for example an Authorization header (put it in /etc/netwatch/env).
-    pub headers_env: String,
     /// Seconds between metric exports.
     pub interval_secs: u64,
     /// Export metrics: traffic, flows, sources, bans, proposals.
@@ -119,7 +116,6 @@ impl Default for OtelConfig {
         Self {
             enabled: false,
             endpoint: "http://127.0.0.1:4318".into(),
-            headers_env: "OTEL_EXPORTER_OTLP_HEADERS".into(),
             interval_secs: 60,
             metrics: true,
             logs: true,

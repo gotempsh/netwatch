@@ -29,7 +29,7 @@ Backends that need a token take it as a header. Put the headers in `/etc/netwatc
 OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20dXNlcjp0b2tlbg==
 ```
 
-`headers_env` names a different variable if you prefer. Extra resource attributes (`deployment.environment`, a cluster name, …) come from the standard `OTEL_RESOURCE_ATTRIBUTES` variable.
+`OTEL_EXPORTER_OTLP_LOGS_HEADERS` and `OTEL_EXPORTER_OTLP_METRICS_HEADERS` set different headers for events and metrics; each takes the place of `OTEL_EXPORTER_OTLP_HEADERS` for its signal. An entry that isn't a valid `key=value` header turns export off with an error naming the variable and the entry's position, never its content. Extra resource attributes (`deployment.environment`, a cluster name, …) come from the standard `OTEL_RESOURCE_ATTRIBUTES` variable.
 
 ## A collector for Prometheus and Loki
 

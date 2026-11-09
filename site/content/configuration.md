@@ -162,12 +162,13 @@ See [Slack notifications](/slack).
 ```toml
 [otel]
 enabled = false
-endpoint = "http://127.0.0.1:4318"         # OTLP/HTTP; /v1/metrics and /v1/logs are appended
-headers_env = "OTEL_EXPORTER_OTLP_HEADERS" # variable with key=value,key2=value2 headers
-interval_secs = 60                         # seconds between metric exports (10 or more)
+endpoint = "http://127.0.0.1:4318" # OTLP/HTTP; /v1/metrics and /v1/logs are appended
+interval_secs = 60                 # seconds between metric exports (10 or more)
 metrics = true
-logs = true                                # events as log records
+logs = true                        # events as log records
 ```
+
+Request headers (a backend's token) come from `OTEL_EXPORTER_OTLP_HEADERS` in `/etc/netwatch/env`. See [OpenTelemetry](/opentelemetry).
 
 See [OpenTelemetry](/opentelemetry).
 

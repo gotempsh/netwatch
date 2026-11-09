@@ -49,7 +49,8 @@ const pages = NAV.flatMap((s) =>
   }),
 );
 
-const href = (slug) => (slug === "index" ? BASE : `${BASE}${slug}`);
+// Trailing slash: GitHub Pages redirects /page to /page/ otherwise.
+const href = (slug) => (slug === "index" ? BASE : `${BASE}${slug}/`);
 const mdHref = (slug) => `${BASE}${slug}.md`;
 
 // ---- Markdown -> HTML --------------------------------------------------------
@@ -76,7 +77,12 @@ const shot = (src) => {
 };
 
 const internal = (url) => url.startsWith("/") && !url.startsWith("//");
-const localUrl = (url) => (internal(url) ? BASE + url.slice(1) : url);
+const localUrl = (url) => {
+  if (!internal(url)) return url;
+  const [p, hash] = url.slice(1).split("#");
+  const page = p && !p.includes(".") && !p.endsWith("/") ? `${p}/` : p;
+  return BASE + page + (hash ? `#${hash}` : "");
+};
 
 const ICON_COPY = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const ICON_CHECK = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;

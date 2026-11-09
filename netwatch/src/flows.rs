@@ -960,6 +960,9 @@ impl FlowTable {
                     .or_insert_with(|| {
                         Listener::new(PROTO_TCP, ev.lport, owner.clone(), now, self.eph)
                     });
+                // What it was known by: the address announced, or for a socket
+                // found by a scan (never announced here), its most exposed one.
+                let before = l.shown.or_else(|| l.shown_addr());
                 l.addrs.insert(addr);
                 if let Some(o) = &owner {
                     l.by_addr.insert(addr, o.clone());
@@ -967,7 +970,7 @@ impl FlowTable {
                 l.exposed |= !addr.is_loopback();
                 // Announced when new, and again when a later listen() on the
                 // port binds a more exposed address (127.0.0.1, then 10.0.0.5).
-                let announce = new || l.shown.is_some_and(|s| exposure(addr) > exposure(s));
+                let announce = new || before.is_some_and(|s| exposure(addr) > exposure(s));
                 if announce {
                     l.announced = true;
                     l.shown = Some(addr);
@@ -997,6 +1000,11 @@ impl FlowTable {
                 let Some(l) = self.listeners.get_mut(&(PROTO_TCP, ev.lport)) else {
                     return;
                 };
+                // Sockets found by a scan have no announced address: remember the
+                // most exposed one before the closes take the addresses away.
+                if l.shown.is_none() {
+                    l.shown = l.shown_addr();
+                }
                 l.by_addr.remove(&addr);
                 if !l.addrs.remove(&addr) || !l.addrs.is_empty() {
                     return;
@@ -2949,6 +2957,67 @@ mod tests {
                 ("unlisten", "10.0.0.5")
             ]
         );
+    }
+
+    #[test]
+    fn listeners_found_at_startup_are_named_by_their_most_exposed_address() {
+        let mut t = table();
+        t.host_addrs.insert("10.0.0.5".parse().unwrap());
+        t.host_addrs.insert("203.0.113.1".parse().unwrap());
+        let clock = BootClock::new();
+        // As the first scan leaves it: announced, nothing named yet.
+        let mut l = Listener::new(PROTO_TCP, 5432, None, 0, t.eph);
+        for a in ["127.0.0.1", "::1", "10.0.0.5"] {
+            l.addrs.insert(a.parse().unwrap());
+        }
+        l.exposed = true;
+        l.announced = true;
+        t.listeners.insert((PROTO_TCP, 5432), l);
+        let ev = |sk: u64, l: &str, old: u8, new: u8| SockEvent {
+            ts_ns: 1,
+            skaddr: sk,
+            local: ip_to_key(l.parse().unwrap()),
+            remote: ip_to_key("0.0.0.0".parse().unwrap()),
+            comm: *b"postgres\0\0\0\0\0\0\0\0",
+            pid: 0,
+            lport: 5432,
+            rport: 0,
+            oldstate: old,
+            newstate: new,
+            _pad: [0; 6],
+        };
+        // Another loopback socket is no news; nothing was announced.
+        t.observe_sock(&ev(1, "127.0.0.2", CLOSE, LISTEN), &clock, 100);
+        assert!(t.events.is_empty());
+        // Loopback closes last, and the unlisten still names 10.0.0.5.
+        for (sk, a) in [
+            (2, "10.0.0.5"),
+            (3, "::1"),
+            (1, "127.0.0.2"),
+            (4, "127.0.0.1"),
+        ] {
+            t.observe_sock(&ev(sk, a, LISTEN, CLOSE), &clock, 200);
+        }
+        let got: Vec<(&str, &str)> = t
+            .events
+            .iter()
+            .map(|e| (e.kind, e.local.as_str()))
+            .collect();
+        assert_eq!(got, [("unlisten", "10.0.0.5")]);
+
+        // One found at startup on loopback only, that later binds a public address.
+        let mut l = Listener::new(PROTO_TCP, 5432, None, 0, t.eph);
+        l.addrs.insert("127.0.0.1".parse().unwrap());
+        l.announced = true;
+        t.listeners.insert((PROTO_TCP, 5432), l);
+        t.events.clear();
+        t.observe_sock(&ev(5, "203.0.113.1", CLOSE, LISTEN), &clock, 300);
+        let got: Vec<(&str, &str)> = t
+            .events
+            .iter()
+            .map(|e| (e.kind, e.local.as_str()))
+            .collect();
+        assert_eq!(got, [("listen", "203.0.113.1")]);
     }
 
     #[test]

@@ -277,7 +277,7 @@ impl Otel {
         gauge!(
             "netwatch.listeners.exposed",
             "{socket}",
-            "Services listening on a public or wildcard address",
+            "Services listening on an address other than loopback",
             |s| s.listeners_exposed
         );
 
@@ -550,11 +550,13 @@ impl Otel {
             .iter()
             .filter(|e| e.kind == "listen" || e.kind == "unlisten")
         {
-            let exposed = e
+            let exposed = listener_exposed(&e.local);
+            // WARN where Slack alerts: a public or wildcard address.
+            let public = e
                 .local
                 .parse::<std::net::IpAddr>()
                 .is_ok_and(|a| a.is_unspecified() || crate::util::is_public(a));
-            let sev = if e.kind == "listen" && exposed {
+            let sev = if e.kind == "listen" && public {
                 Severity::Warn
             } else {
                 Severity::Info
@@ -658,6 +660,14 @@ fn signal_url(endpoint: &str, signal: &str) -> anyhow::Result<String> {
 }
 
 /// `OTEL_EXPORTER_OTLP_HEADERS` format: `key=value,key2=value2`, values percent-encoded.
+/// Exposed as the API and UI mean it (and `netwatch.listeners.exposed` counts
+/// it): bound to anything but loopback, LAN and wildcard addresses included.
+fn listener_exposed(local: &str) -> bool {
+    local
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|a| !a.is_loopback())
+}
+
 /// The error never quotes an entry: it may hold a token.
 fn parse_headers(s: &str, var: &str) -> anyhow::Result<HashMap<String, String>> {
     let mut out = HashMap::new();
@@ -918,6 +928,23 @@ mod tests {
             "http://otel:4318/v1/logs"
         );
         assert!(signal_url("otel:4318", "logs").is_err());
+    }
+
+    #[test]
+    fn exposed_listeners() {
+        for a in [
+            "0.0.0.0",
+            "::",
+            "203.0.113.1",
+            "10.0.0.5",
+            "172.17.0.1",
+            "100.64.0.1",
+        ] {
+            assert!(listener_exposed(a), "{a}");
+        }
+        for a in ["127.0.0.1", "::1", ""] {
+            assert!(!listener_exposed(a), "{a}");
+        }
     }
 
     #[test]

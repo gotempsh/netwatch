@@ -293,6 +293,25 @@ pub struct Listener {
 }
 
 impl Listener {
+    /// The address events name: the most exposed one (wildcard, then public,
+    /// then any non-loopback), so a socket on 127.0.0.1 and a public address
+    /// reads, and alerts, as public.
+    pub fn shown_addr(&self) -> Option<IpAddr> {
+        let rank = |a: &IpAddr| {
+            if a.is_unspecified() {
+                3
+            } else if crate::util::is_public(*a) {
+                2
+            } else if !a.is_loopback() {
+                1
+            } else {
+                0
+            }
+        };
+        // max_by_key keeps the last of equals; rev() makes it the first.
+        self.addrs.iter().rev().copied().max_by_key(rank)
+    }
+
     fn new(proto: u8, port: u16, owner: Option<Owner>, since: i64, eph: (u16, u16)) -> Self {
         Self {
             proto: proto_label(proto),
@@ -1158,12 +1177,7 @@ impl FlowTable {
                 ts: now,
                 kind: "unlisten",
                 proto: l.proto,
-                local: l
-                    .addrs
-                    .iter()
-                    .next()
-                    .map(|a| a.to_string())
-                    .unwrap_or_default(),
+                local: l.shown_addr().map(|a| a.to_string()).unwrap_or_default(),
                 lport: l.port,
                 remote: None,
                 rport: None,
@@ -1229,7 +1243,7 @@ impl FlowTable {
     }
 
     fn listen_event(&mut self, l: &Listener, ts: i64) {
-        let addr = l.addrs.iter().next().copied();
+        let addr = l.shown_addr();
         let detail = format!(
             "{} listening on {}:{}/{}",
             owner_label(&l.owner),
@@ -2874,5 +2888,21 @@ mod tests {
         assert!(t.dns_seen.is_empty());
         t.prune(1000 + DNS_FLOW_TTL + 1);
         assert!(t.dns_flow.is_empty());
+    }
+
+    #[test]
+    fn events_name_the_exposed_address() {
+        let mut l = Listener::new(PROTO_TCP, 8080, None, 0, (32768, 60999));
+        assert_eq!(l.shown_addr(), None);
+        l.addrs.insert("127.0.0.1".parse().unwrap());
+        assert_eq!(l.shown_addr(), Some("127.0.0.1".parse().unwrap()));
+        l.addrs.insert("::1".parse().unwrap());
+        l.addrs.insert("10.0.0.5".parse().unwrap());
+        assert_eq!(l.shown_addr(), Some("10.0.0.5".parse().unwrap()));
+        l.addrs.insert("203.0.113.1".parse().unwrap());
+        l.addrs.insert("203.0.113.2".parse().unwrap());
+        assert_eq!(l.shown_addr(), Some("203.0.113.1".parse().unwrap()));
+        l.addrs.insert("::".parse().unwrap());
+        assert_eq!(l.shown_addr(), Some("::".parse().unwrap()));
     }
 }

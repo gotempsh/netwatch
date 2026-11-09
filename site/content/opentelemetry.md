@@ -92,7 +92,7 @@ Every series carries the resource attributes `service.name` (`netwatch`), `servi
 | `netwatch.process.flows` | gauge | `{flow}` | `process.executable.name`, `container.name`, `netwatch.unit` |
 | `netwatch.process.throughput` | gauge | `bit/s` | `process.executable.name`, `container.name`, `netwatch.unit`, `network.io.direction` |
 
-The packet counters cover the primary interface since netwatch started. `netwatch.sources.active` counts sources seen in the last 10 minutes, `netwatch.sources.flagged` those at or above `ban.review_score`, and `netwatch.ssh.failures` failed logins in the last hour. `netwatch.direction` is `in` (they connected to us), `out` or `unknown`.
+The packet counters cover the primary interface since netwatch started. `netwatch.sources.active` counts sources seen in the last 10 minutes, `netwatch.sources.flagged` those at or above `ban.review_score`, `netwatch.ssh.failures` failed logins in the last hour, and `netwatch.listeners.exposed` services bound to anything but loopback (LAN and wildcard addresses included, as in the UI). `netwatch.direction` is `in` (they connected to us), `out` or `unknown`.
 
 Through the collector's Prometheus exporter the names become `netwatch_packets_total`, `netwatch_flows_active`, `netwatch_interface_throughput_bit_per_second` and so on.
 
@@ -110,7 +110,7 @@ Each event is a log record with an event name, a severity, a readable body and a
 | `netwatch.ban` | a ban is applied: approved, manual, by policy in enforce mode or by the model | WARN | `netwatch.target`, `netwatch.banned_by`, `netwatch.ttl` |
 | `netwatch.unban` | a ban expires or is lifted | INFO | `netwatch.target`, `netwatch.reason` |
 | `netwatch.ssh` | an SSH or Tailscale SSH login, failure or invalid user | INFO | `netwatch.ssh.event`, `user.name`, `source.address`, `netwatch.ssh.method`, `netwatch.location` |
-| `netwatch.listener` | a service starts or stops listening | WARN when it starts on a public or wildcard address, else INFO | `netwatch.listener.event`, `network.transport`, `server.address`, `server.port`, `netwatch.exposed`, `process.executable.name`, `process.pid`, `container.name`, `netwatch.unit` |
+| `netwatch.listener` | a service starts or stops listening | WARN when it starts on a public or wildcard address (as the Slack alert), else INFO; `netwatch.exposed` is true for any address but loopback, as `netwatch.listeners.exposed` counts | `netwatch.listener.event`, `network.transport`, `server.address`, `server.port`, `netwatch.exposed`, `process.executable.name`, `process.pid`, `container.name`, `netwatch.unit` |
 
 `netwatch.finding.kind` is one of the [finding kinds](/bans-and-policy#rules-as-json), and `netwatch.ttl` is in seconds. Unlike Slack, every event is sent: filter in the collector or the backend.
 

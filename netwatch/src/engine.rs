@@ -641,10 +641,11 @@ impl Engine {
                         st.ssh.failed.pop_front();
                     }
                 }
-                if let Some(u) = &ev.user {
-                    if st.ssh.invalid_users.len() < 200 && ev.kind == "invalid_user" {
-                        st.ssh.invalid_users.insert(u.clone());
-                    }
+                if let Some(u) = &ev.user
+                    && st.ssh.invalid_users.len() < 200
+                    && ev.kind == "invalid_user"
+                {
+                    st.ssh.invalid_users.insert(u.clone());
                 }
             }
             "accepted" | "tailscale_login" => {
@@ -947,19 +948,18 @@ impl Engine {
                     ),
                 });
             }
-            if let Some(cc) = &st.geo.country_code {
-                if st.total.in_packets > 0
-                    && cfg
-                        .watch_countries
-                        .iter()
-                        .any(|w| w.eq_ignore_ascii_case(cc))
-                {
-                    f.push(Finding {
-                        kind: "watched_country",
-                        score: 15,
-                        summary: format!("From watched country {cc}"),
-                    });
-                }
+            if let Some(cc) = &st.geo.country_code
+                && st.total.in_packets > 0
+                && cfg
+                    .watch_countries
+                    .iter()
+                    .any(|w| w.eq_ignore_ascii_case(cc))
+            {
+                f.push(Finding {
+                    kind: "watched_country",
+                    score: 15,
+                    summary: format!("From watched country {cc}"),
+                });
             }
 
             let failed10 = st.ssh_failed_within(now, 600);

@@ -283,12 +283,12 @@ impl AppMeta {
     }
 
     fn match_exploit(&mut self, data: &[u8]) {
-        if self.exploit_sig.is_none() {
-            if let Some(s) = crate::exploits::match_request(data) {
-                self.exploit = Some(s.name);
-                self.cve = s.cve;
-                self.exploit_sig = Some(s);
-            }
+        if self.exploit_sig.is_none()
+            && let Some(s) = crate::exploits::match_request(data)
+        {
+            self.exploit = Some(s.name);
+            self.cve = s.cve;
+            self.exploit_sig = Some(s);
         }
     }
 
@@ -330,10 +330,10 @@ pub fn tls_client_hello(b: &[u8]) -> Option<(Option<String>, Option<String>)> {
         match ty {
             0 => {
                 // server_name_list: u16 len, then (u8 type, u16 len, name)
-                if let (Some(&0), Some(n)) = (b.get(body + 2), be16(b, body + 3)) {
-                    if let Some(name) = b.get(body + 5..body + 5 + n as usize) {
-                        sni = Some(String::from_utf8_lossy(name).to_ascii_lowercase());
-                    }
+                if let (Some(&0), Some(n)) = (b.get(body + 2), be16(b, body + 3))
+                    && let Some(name) = b.get(body + 5..body + 5 + n as usize)
+                {
+                    sni = Some(String::from_utf8_lossy(name).to_ascii_lowercase());
                 }
             }
             16 => {

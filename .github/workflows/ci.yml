@@ -17,8 +17,8 @@ jobs:
   ui:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -29,21 +29,23 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install eBPF toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup toolchain install nightly --profile minimal --component rust-src
           curl -fsSL "https://github.com/aya-rs/bpf-linker/releases/download/v0.12.0/bpf-linker-$(uname -m)-unknown-linux-musl.tar.zst" \
             | tar --zstd -x -C ~/.cargo/bin
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check -p netwatch
+      - run: cargo clippy -p netwatch --all-targets -- -D warnings
       # Tests run through `sudo -E` (.cargo/config.toml) because loading eBPF needs root.
       - run: cargo test -p netwatch
 
   macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p netwatch --all-targets -- -D warnings
       - run: cargo test -p netwatch

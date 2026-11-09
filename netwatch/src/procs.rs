@@ -200,10 +200,10 @@ impl OwnerCache {
         if pid == 0 {
             return None;
         }
-        if let Some((o, ts)) = self.by_pid.get(&pid) {
-            if now - ts < 60 {
-                return Some(o.clone());
-            }
+        if let Some((o, ts)) = self.by_pid.get(&pid)
+            && now - ts < 60
+        {
+            return Some(o.clone());
         }
         let (comm, exe) = match crate::macos::proc::describe(pid) {
             Some(d) => d,

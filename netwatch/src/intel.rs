@@ -322,14 +322,13 @@ pub fn discover_peers(cfg: &Config) -> BTreeSet<IpNet> {
     if cfg.allow_tailscale_peers {
         if let Some(json) = run("tailscale", &["status", "--json"])
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            && let Some(peers) = json["Peer"].as_object()
         {
-            if let Some(peers) = json["Peer"].as_object() {
-                for peer in peers.values() {
-                    let addrs = peer["Addrs"].as_array().into_iter().flatten();
-                    for a in addrs.chain(std::iter::once(&peer["CurAddr"])) {
-                        if let Some(ip) = a.as_str().and_then(endpoint_ip) {
-                            out.insert(IpNet::from(ip));
-                        }
+            for peer in peers.values() {
+                let addrs = peer["Addrs"].as_array().into_iter().flatten();
+                for a in addrs.chain(std::iter::once(&peer["CurAddr"])) {
+                    if let Some(ip) = a.as_str().and_then(endpoint_ip) {
+                        out.insert(IpNet::from(ip));
                     }
                 }
             }
@@ -337,16 +336,15 @@ pub fn discover_peers(cfg: &Config) -> BTreeSet<IpNet> {
         // DERP relays and STUN servers.
         if let Some(json) = run("tailscale", &["debug", "derp-map"])
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            && let Some(regions) = json["Regions"].as_object()
         {
-            if let Some(regions) = json["Regions"].as_object() {
-                for node in regions
-                    .values()
-                    .flat_map(|r| r["Nodes"].as_array().into_iter().flatten())
-                {
-                    for k in ["IPv4", "IPv6"] {
-                        if let Some(ip) = node[k].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
-                            out.insert(IpNet::from(ip));
-                        }
+            for node in regions
+                .values()
+                .flat_map(|r| r["Nodes"].as_array().into_iter().flatten())
+            {
+                for k in ["IPv4", "IPv6"] {
+                    if let Some(ip) = node[k].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
+                        out.insert(IpNet::from(ip));
                     }
                 }
             }
@@ -356,10 +354,9 @@ pub fn discover_peers(cfg: &Config) -> BTreeSet<IpNet> {
     #[cfg(target_os = "macos")]
     if let Some(gw) =
         run("route", &["-n", "get", "default"]).and_then(|t| route_field(&t, "gateway"))
+        && let Ok(ip) = gw.parse::<IpAddr>()
     {
-        if let Ok(ip) = gw.parse::<IpAddr>() {
-            out.insert(IpNet::from(ip));
-        }
+        out.insert(IpNet::from(ip));
     }
     #[cfg(target_os = "linux")]
     if let Some(text) = run("ip", &["-j", "route", "show", "default"]) {

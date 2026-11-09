@@ -104,20 +104,20 @@ impl Geo {
 
     pub fn lookup(&self, ip: IpAddr) -> GeoInfo {
         let mut info = GeoInfo::default();
-        if let Some(r) = &self.city.reader {
-            if let Ok(Some(c)) = r.lookup(ip).and_then(|res| res.decode::<geoip2::City>()) {
-                info.country_code = c.country.iso_code.map(str::to_string);
-                info.country = c.country.names.english.map(str::to_string);
-                info.city = c.city.names.english.map(str::to_string);
-                info.lat = c.location.latitude;
-                info.lon = c.location.longitude;
-            }
+        if let Some(r) = &self.city.reader
+            && let Ok(Some(c)) = r.lookup(ip).and_then(|res| res.decode::<geoip2::City>())
+        {
+            info.country_code = c.country.iso_code.map(str::to_string);
+            info.country = c.country.names.english.map(str::to_string);
+            info.city = c.city.names.english.map(str::to_string);
+            info.lat = c.location.latitude;
+            info.lon = c.location.longitude;
         }
-        if let Some(r) = &self.asn.reader {
-            if let Ok(Some(a)) = r.lookup(ip).and_then(|res| res.decode::<geoip2::Asn>()) {
-                info.asn = a.autonomous_system_number;
-                info.as_org = a.autonomous_system_organization.map(str::to_string);
-            }
+        if let Some(r) = &self.asn.reader
+            && let Ok(Some(a)) = r.lookup(ip).and_then(|res| res.decode::<geoip2::Asn>())
+        {
+            info.asn = a.autonomous_system_number;
+            info.as_org = a.autonomous_system_organization.map(str::to_string);
         }
         info
     }

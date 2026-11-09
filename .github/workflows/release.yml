@@ -1,10 +1,12 @@
 name: Release
 
 # Push a tag vX.Y.Z matching the version in netwatch/Cargo.toml. A suffix
-# (v0.2.0-rc.1) publishes a prerelease that doesn't move "latest".
+# (v0.2.0-rc.1) publishes a prerelease that doesn't move "latest". Running it
+# by hand (gh workflow run release.yml) builds every archive without publishing.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,19 +18,20 @@ jobs:
   ui:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tag matches the crate version
+        if: github.event_name == 'push'
         run: |
           want=$(grep -m1 '^version' netwatch/Cargo.toml | cut -d'"' -f2)
           [ "${GITHUB_REF_NAME#v}" = "$want" ] || [ "${GITHUB_REF_NAME%%-*}" = "v$want" ] \
             || { echo "tag $GITHUB_REF_NAME does not match netwatch/Cargo.toml version $want" >&2; exit 1; }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: npm --prefix ui ci && npm --prefix ui run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ui-dist
           path: ui/dist
@@ -46,8 +49,8 @@ jobs:
           - { os: macos-15, asset: netwatch-macos-x86_64, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ui-dist
           path: ui/dist
@@ -73,25 +76,26 @@ jobs:
             cp -R scripts/install.sh scripts/netwatch-update-geoip scripts/systemd "$d/scripts/"
           fi
           tar -czf "$d.tar.gz" "$d"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}.tar.gz
 
   publish:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: netwatch-*
           merge-multiple: true
       - run: sha256sum netwatch-*.tar.gz > SHA256SUMS && cat SHA256SUMS
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: netwatch-*.tar.gz
       - name: Publish

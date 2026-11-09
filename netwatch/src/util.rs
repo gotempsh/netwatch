@@ -134,7 +134,7 @@ impl BootClock {
         (unix_ns - self.offset_ns).max(0) as u64
     }
 
-    pub fn to_unix(&self, boot_ns: u64) -> i64 {
+    pub fn to_unix(self, boot_ns: u64) -> i64 {
         ((boot_ns as i128 + self.offset_ns) / 1_000_000_000) as i64
     }
 }

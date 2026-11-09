@@ -235,10 +235,10 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     // launchd has no EnvironmentFile; the daemon reads it itself, before any thread starts.
     #[cfg(target_os = "macos")]
-    if matches!(cli.cmd, Cmd::Run) {
-        if let Some(dir) = cli.config.parent() {
-            macos::load_env_file(&dir.join("env"));
-        }
+    if matches!(cli.cmd, Cmd::Run)
+        && let Some(dir) = cli.config.parent()
+    {
+        macos::load_env_file(&dir.join("env"));
     }
     if !matches!(cli.cmd, Cmd::Run) {
         // Exit quietly when piped into `head` and the like, as other CLI tools do.

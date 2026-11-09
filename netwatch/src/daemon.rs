@@ -342,7 +342,7 @@ fn tick_loop(app: Arc<App>) {
 impl App {
     fn tick(&self, dt: f64, n: u64) -> anyhow::Result<()> {
         let now = now_unix();
-        let periodic = n % (60 / self.cfg.tick_secs.max(1)).max(1) == 0;
+        let periodic = n.is_multiple_of((60 / self.cfg.tick_secs.max(1)).max(1));
         let tracking = self.cfg.track_flows;
         if periodic {
             let addrs = netif::addresses();
@@ -350,7 +350,7 @@ impl App {
         }
         let ifl = netif::list_with(&self.if_addrs.lock().unwrap());
         // Socket owners from /proc every ~15 s, outside every lock.
-        let scan = (tracking && n % (15 / self.cfg.tick_secs.max(1)).max(1) == 0)
+        let scan = (tracking && n.is_multiple_of((15 / self.cfg.tick_secs.max(1)).max(1)))
             .then(|| crate::procs::scan(&mut self.scan_owners.lock().unwrap(), now));
         let (sources, probes, global, kflows, health, attached) = {
             let mut k = self.kernel.lock().unwrap();
@@ -580,7 +580,7 @@ impl App {
         }
 
         self.expire_bans(now)?;
-        if n % (3600 / self.cfg.tick_secs.max(1)).max(1) == 0 && n > 0 {
+        if n.is_multiple_of((3600 / self.cfg.tick_secs.max(1)).max(1)) && n > 0 {
             self.check_sshd();
         }
         Ok(())

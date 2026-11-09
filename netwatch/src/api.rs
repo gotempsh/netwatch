@@ -698,23 +698,24 @@ fn flow_matches(f: &FlowRow, q: &FlowsQuery) -> bool {
     if !eq(&q.dir, &f.dir) || !eq(&q.iface, &f.iface) || !eq(&q.proto, &f.proto) {
         return false;
     }
-    if let Some(ip) = q.ip.as_deref().filter(|s| !s.is_empty()) {
-        if f.remote != ip && f.local != ip {
-            return false;
-        }
+    if let Some(ip) = q.ip.as_deref().filter(|s| !s.is_empty())
+        && f.remote != ip
+        && f.local != ip
+    {
+        return false;
     }
-    if let Some(p) = q.port {
-        if f.lport != p && f.rport != p {
-            return false;
-        }
+    if let Some(p) = q.port
+        && f.lport != p
+        && f.rport != p
+    {
+        return false;
     }
-    if let Some(p) = q.process.as_deref().filter(|s| !s.is_empty()) {
-        if ![&f.process, &f.container, &f.unit]
+    if let Some(p) = q.process.as_deref().filter(|s| !s.is_empty())
+        && ![&f.process, &f.container, &f.unit]
             .iter()
             .any(|v| v.as_deref() == Some(p))
-        {
-            return false;
-        }
+    {
+        return false;
     }
     if let Some(needle) = q.q.as_deref().filter(|s| !s.is_empty()) {
         let needle = needle.to_ascii_lowercase();

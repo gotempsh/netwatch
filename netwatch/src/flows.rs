@@ -686,10 +686,10 @@ impl FlowTable {
                         let from_initiator = from_initiator(f.dir, out);
                         f.app.absorb(&data, from_initiator);
                     }
-                    if let Some(r) = f.take_request(now) {
-                        if self.requests.len() < 10_000 {
-                            self.requests.push(r);
-                        }
+                    if let Some(r) = f.take_request(now)
+                        && self.requests.len() < 10_000
+                    {
+                        self.requests.push(r);
                     }
                 }
                 // The flow shows up on the next snapshot; give it one more tick.
@@ -802,10 +802,10 @@ impl FlowTable {
     }
 
     fn find_owner(&self, key: &FlowKey, sk: &SockKey) -> Option<Owner> {
-        if key.proto == PROTO_TCP {
-            if let Some(o) = self.socks.get(sk).and_then(|s| s.owner.clone()) {
-                return Some(o);
-            }
+        if key.proto == PROTO_TCP
+            && let Some(o) = self.socks.get(sk).and_then(|s| s.owner.clone())
+        {
+            return Some(o);
         }
         if let Some(o) = self.proc_conn.get(&(key.proto, *sk)) {
             return Some(o.clone());
@@ -838,10 +838,10 @@ impl FlowTable {
             rport: key.lport,
             _pad: 0,
         };
-        if key.proto == PROTO_TCP {
-            if let Some(o) = self.socks.get(&rev).and_then(|s| s.owner.clone()) {
-                return Some(o);
-            }
+        if key.proto == PROTO_TCP
+            && let Some(o) = self.socks.get(&rev).and_then(|s| s.owner.clone())
+        {
+            return Some(o);
         }
         self.proc_conn
             .get(&(key.proto, rev))
@@ -856,7 +856,9 @@ impl FlowTable {
         clock: &BootClock,
         now: i64,
     ) -> Vec<SockKey> {
-        let live: BTreeSet<(([u8; 16], u16), ([u8; 16], u16))> = self
+        // (address, port) of each end.
+        type Endpoint = ([u8; 16], u16);
+        let live: BTreeSet<(Endpoint, Endpoint)> = self
             .active
             .keys()
             .map(|k| ((k.local, k.lport), (k.remote, k.rport)))
@@ -1092,17 +1094,17 @@ impl FlowTable {
                         .inodes
                         .insert(s.inode);
                 }
-            } else if !s.remote.is_unspecified() {
-                if let Some(o) = owner {
-                    let key = SockKey {
-                        local: crate::util::ip_to_key(s.local),
-                        remote: crate::util::ip_to_key(s.remote),
-                        lport: s.lport,
-                        rport: s.rport,
-                        _pad: 0,
-                    };
-                    conn.insert((s.proto, key), o);
-                }
+            } else if !s.remote.is_unspecified()
+                && let Some(o) = owner
+            {
+                let key = SockKey {
+                    local: crate::util::ip_to_key(s.local),
+                    remote: crate::util::ip_to_key(s.remote),
+                    lport: s.lport,
+                    rport: s.rport,
+                    _pad: 0,
+                };
+                conn.insert((s.proto, key), o);
             }
         }
         self.proc_conn = conn;
@@ -1271,10 +1273,10 @@ impl FlowTable {
                 Some(f) => {
                     let fi = from_initiator(f.dir, ev.out == 1);
                     f.app.absorb(data, fi);
-                    if let Some(r) = f.take_request(now) {
-                        if self.requests.len() < 10_000 {
-                            self.requests.push(r);
-                        }
+                    if let Some(r) = f.take_request(now)
+                        && self.requests.len() < 10_000
+                    {
+                        self.requests.push(r);
                     }
                 }
                 None => {

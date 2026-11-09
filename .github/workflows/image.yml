@@ -3,14 +3,15 @@ name: Image
 # Builds ghcr.io/gotempsh/netwatch for linux/amd64 and linux/arm64 on native
 # runners, then joins them into one multi-arch tag. Runs on release tags, or by
 # hand for an existing tag: gh workflow run image.yml -f tag=v0.1.0
+# Without a tag, a manual run builds the branch and pushes nothing.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build (vX.Y.Z)
-        required: true
+        description: Existing release tag to build and push (vX.Y.Z); empty builds the branch only
+        required: false
 
 permissions:
   contents: read
@@ -32,34 +33,36 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
       # Pushed by digest only; the merge job gives the joined image its tags.
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ startsWith(env.TAG, 'v') }}
           cache-from: type=gha,scope=image-${{ matrix.arch }}
           cache-to: type=gha,scope=image-${{ matrix.arch }},mode=max
-      - run: |
+      - if: startsWith(env.TAG, 'v')
+        run: |
           mkdir -p digests
           d='${{ steps.build.outputs.digest }}'
           touch "digests/${d#sha256:}"
-      - uses: actions/upload-artifact@v4
+      - if: startsWith(env.TAG, 'v')
+        uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.arch }}
           path: digests/*
@@ -67,6 +70,7 @@ jobs:
 
   merge:
     needs: build
+    if: startsWith(inputs.tag || github.ref_name, 'v')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -74,13 +78,13 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: digest-*
           merge-multiple: true
           path: digests
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -100,7 +104,7 @@ jobs:
         run: |
           docker buildx imagetools inspect "$IMAGE:${{ steps.tags.outputs.version }}"
           echo "digest=$(docker buildx imagetools inspect "$IMAGE:${{ steps.tags.outputs.version }}" --format '{{json .Manifest}}' | jq -r .digest)" >> "$GITHUB_OUTPUT"
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.inspect.outputs.digest }}

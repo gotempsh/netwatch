@@ -92,6 +92,39 @@ pub struct Config {
     pub llm: LlmConfig,
     pub slack: SlackConfig,
     pub temps: TempsConfig,
+    pub otel: OtelConfig,
+}
+
+/// Pushes metrics and security events to an OpenTelemetry collector over
+/// OTLP/HTTP. Outbound only, like Slack: nothing new listens.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OtelConfig {
+    pub enabled: bool,
+    /// OTLP/HTTP endpoint; /v1/metrics and /v1/logs are appended.
+    pub endpoint: String,
+    /// Environment variable holding extra request headers as `key=value,key2=value2`,
+    /// for example an Authorization header (put it in /etc/netwatch/env).
+    pub headers_env: String,
+    /// Seconds between metric exports.
+    pub interval_secs: u64,
+    /// Export metrics: traffic, flows, sources, bans, proposals.
+    pub metrics: bool,
+    /// Export events as log records: findings, proposals, bans, SSH logins, listeners.
+    pub logs: bool,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: "http://127.0.0.1:4318".into(),
+            headers_env: "OTEL_EXPORTER_OTLP_HEADERS".into(),
+            interval_secs: 60,
+            metrics: true,
+            logs: true,
+        }
+    }
 }
 
 /// Request lines from temps (its proxy decrypts HTTPS, which the payload
@@ -297,6 +330,7 @@ impl Default for Config {
             llm: LlmConfig::default(),
             slack: SlackConfig::default(),
             temps: TempsConfig::default(),
+            otel: OtelConfig::default(),
         }
     }
 }

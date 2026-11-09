@@ -15,6 +15,7 @@ mod kernel;
 mod llm;
 mod netif;
 mod notify;
+mod otel;
 mod policy;
 mod procs;
 mod skill;

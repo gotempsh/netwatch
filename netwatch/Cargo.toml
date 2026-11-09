@@ -30,6 +30,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 humantime = "2"
 ipnet = { version = "2", features = ["serde"] }
 maxminddb = "0.32"
+# OTLP over HTTP with protobuf, sent from the SDK's own export threads. Its
+# internal logs (failed exports) go through tracing, which forwards them to `log`.
+opentelemetry = { version = "0.33", default-features = false, features = ["metrics", "logs", "internal-logs"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["metrics", "logs", "internal-logs"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "metrics", "logs", "internal-logs"] }
+tracing = { version = "0.1", default-features = false, features = ["log"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 rust-embed = { version = "8", features = ["mime-guess"] }

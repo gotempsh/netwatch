@@ -157,6 +157,20 @@ max_per_hour = 20
 
 See [Slack notifications](/slack).
 
+## OpenTelemetry
+
+```toml
+[otel]
+enabled = false
+endpoint = "http://127.0.0.1:4318"         # OTLP/HTTP; /v1/metrics and /v1/logs are appended
+headers_env = "OTEL_EXPORTER_OTLP_HEADERS" # variable with key=value,key2=value2 headers
+interval_secs = 60                         # seconds between metric exports (10 or more)
+metrics = true
+logs = true                                # events as log records
+```
+
+See [OpenTelemetry](/opentelemetry).
+
 ## temps
 
 ```toml

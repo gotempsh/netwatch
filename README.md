@@ -11,6 +11,8 @@ netwatch is a single-binary traffic monitor for Linux servers. It is built on [a
 
 You browse the results in a read-only web UI that listens only on `127.0.0.1`.
 
+**Documentation: [gotempsh.github.io/netwatch](https://gotempsh.github.io/netwatch/)**
+
 Optionally, it can use any OpenAI-compatible model. The model reviews the sources the rules can't settle, and turns plain-English ban policies into rules. It is designed for cheap models and small token budgets.
 
 ![Overview: live rates, active bans, pending proposals, and insights with the command that fixes each one](docs/screenshots/overview.png)
@@ -280,7 +282,7 @@ sudo netwatch policy clear
 Without an LLM, pass the rules as JSON instead (`netwatch policy show` prints the format):
 
 ```shell
-sudo netwatch policy set '[{"id":"no-es","action":"never_ban","when":{"countries":["ES"]}}]'
+sudo netwatch policy set '[{"id":"no-es","description":"never ban Spain","action":"never_ban","when":{"countries":["ES"]}}]'
 ```
 
 Rule conditions (all must hold):
@@ -294,7 +296,7 @@ Rule conditions (all must hold):
 - `in_feed`
 - `min_ssh_failed`
 
-Actions are `ban` (with `ttl`), `review`, `ignore` and `never_ban`. `never_ban` always beats everything else.
+Actions are `ban` (with `ttl_secs`), `review`, `ignore` and `never_ban`. `never_ban` always beats everything else.
 
 ### Exploit detection
 

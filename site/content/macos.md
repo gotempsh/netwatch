@@ -1,0 +1,52 @@
+---
+title: macOS
+description: The same daemon, UI, CLI, detection and ban policy on macOS, capturing with /dev/bpf and banning with pf.
+---
+
+The same binary, UI, CLI, detection and ban policy run on macOS (developed on macOS 27, Apple Silicon). Only the layer under them differs.
+
+## Install
+
+```shell
+a=netwatch-macos-$(uname -m)
+curl -fsSL https://github.com/gotempsh/netwatch/releases/latest/download/$a.tar.gz | tar xz
+sudo $a/netwatch install
+```
+
+The binary isn't notarized yet. `curl` doesn't mark it as downloaded, so Gatekeeper lets it run. A copy downloaded with a browser needs `xattr -d com.apple.quarantine netwatch` first.
+
+`install`:
+
+- copies the binary to `/usr/local/bin/netwatch`;
+- writes `/etc/netwatch/netwatch.toml` if it doesn't exist;
+- downloads the DB-IP Lite databases into `/var/db/netwatch` and schedules `netwatch update-geoip` monthly;
+- starts the launchd daemon `dev.netwatch` in observe mode, logging to `/var/log/netwatch.log`.
+
+Then open [http://127.0.0.1:9180](http://127.0.0.1:9180).
+
+`sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too.
+
+Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file.
+
+## What differs from Linux
+
+| | Linux | macOS |
+|---|---|---|
+| Per-source accounting, flows, payload samples | XDP and TC programs | `/dev/bpf` capture threads, one per interface, feeding the same logic in userspace |
+| TCP states, connect latency, failed connects | TCP tracepoints | read from the TCP flags on the wire |
+| Which process opened a connection | tracepoint pid/comm, `/proc` scan | the capture header (macOS names the sending process of outgoing packets), libproc scan |
+| Retransmits | `tcp_retransmit_skb` | the capture header's retransmit flag (our own retransmits only) |
+| Bans | XDP drop | pf table in the anchor `com.apple/netwatch` |
+| SSH logins | journald | the unified log (`log stream`) |
+| Service | systemd | launchd |
+
+- **Defaults.** `interface = "auto"` is the default-route interface, usually `en0`. Flows are also recorded on `utun*` (Tailscale, WireGuard and other VPNs) and `bridge*` (UTM, Lima and other VMs). Docker Desktop runs its containers in a VM, so they show up as one bridged VM, not per container.
+- **Bans.** The stock `/etc/pf.conf` evaluates `anchor "com.apple/*"`, so bans work without editing it. netwatch enables pf with a reference token, and removes its rules and releases pf when it stops, so bans only hold while it runs, as with XDP. With a custom `pf.conf` that lacks that anchor, add `anchor "com.apple/netwatch"` to it.
+- **Capture cost.** Capture happens in userspace, so CPU use grows with traffic. That's fine for a workstation or a small server; it isn't line rate like XDP. Packets are cut at about 1.2 KB, and the log warns if the kernel drops captures.
+- **Linux-only settings.** `xdp_mode`, `drop_syn_ip_options` and the CVE-2026-98432 alerts (a Linux TCP bug) don't apply. `ssh_units` is replaced by the unified log.
+- **SSH.** SSH alerts need Remote Login (System Settings › General › Sharing). Without it, the "sshd accepts passwords" check is skipped.
+- **Paths.** Data lives in `/var/db/netwatch` and sockets in `/var/run/netwatch`.
+
+## Replaying a capture
+
+`NETWATCH_PCAP=capture.pcap netwatch run` replays a capture file through the whole pipeline instead of capturing, without root. It is useful for testing rules: point `db_path` and the sockets at a scratch directory.

@@ -80,7 +80,7 @@ impl Otel {
 
     fn build(cfg: &OtelConfig, host: &str, warn_score: u32) -> anyhow::Result<Self> {
         let headers = match std::env::var(&cfg.headers_env) {
-            Ok(v) => parse_headers(&v)?,
+            Ok(v) => parse_headers(&v, &cfg.headers_env)?,
             Err(_) => HashMap::new(),
         };
         let resource = Resource::builder()
@@ -658,12 +658,21 @@ fn signal_url(endpoint: &str, signal: &str) -> anyhow::Result<String> {
 }
 
 /// `OTEL_EXPORTER_OTLP_HEADERS` format: `key=value,key2=value2`, values percent-encoded.
-fn parse_headers(s: &str) -> anyhow::Result<HashMap<String, String>> {
+/// The error never quotes an entry: it may hold a token.
+fn parse_headers(s: &str, var: &str) -> anyhow::Result<HashMap<String, String>> {
     let mut out = HashMap::new();
-    for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
-        let (k, v) = part
-            .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("header {part:?} is not key=value"))?;
+    for (n, part) in s
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .enumerate()
+    {
+        let (k, v) = part.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!(
+                "${var}: entry {} is not key=value (write `Authorization=Bearer%20...`, not `Authorization: Bearer ...`)",
+                n + 1
+            )
+        })?;
         out.insert(k.trim().to_string(), percent_decode(v.trim()));
     }
     Ok(out)
@@ -675,10 +684,12 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%'
-            && i + 2 < b.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+            && let (Some(hi), Some(lo)) = (
+                b.get(i + 1).and_then(|c| (*c as char).to_digit(16)),
+                b.get(i + 2).and_then(|c| (*c as char).to_digit(16)),
+            )
         {
-            out.push(v);
+            out.push((hi * 16 + lo) as u8);
             i += 3;
         } else {
             out.push(b[i]);
@@ -911,12 +922,25 @@ mod tests {
 
     #[test]
     fn headers() {
-        let h =
-            parse_headers("Authorization=Basic%20dXNlcjpwdw==, x-scope-orgid = tenant1,").unwrap();
+        let h = parse_headers(
+            "Authorization=Basic%20dXNlcjpwdw==, x-scope-orgid = tenant1,",
+            "H",
+        )
+        .unwrap();
         assert_eq!(h["Authorization"], "Basic dXNlcjpwdw==");
         assert_eq!(h["x-scope-orgid"], "tenant1");
-        assert!(parse_headers("novalue").is_err());
+        let err = parse_headers(
+            "x=1,Authorization: Bearer s3cret",
+            "OTEL_EXPORTER_OTLP_HEADERS",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("entry 2") && !err.contains("s3cret"), "{err}");
         assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(percent_decode("%41%7e%"), "A~%");
+        // Non-ASCII right after '%' is kept as is, not sliced through.
+        assert_eq!(percent_decode("tok%Aé"), "tok%Aé");
+        assert_eq!(percent_decode("t=%€x"), "t=%€x");
     }
 
     /// Accepts OTLP/HTTP requests and keeps (path, content type, body).

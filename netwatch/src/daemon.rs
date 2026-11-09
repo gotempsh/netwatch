@@ -833,7 +833,11 @@ impl App {
                     continue;
                 };
                 if b.expires.is_some_and(|e| e <= now) {
+                    // Expired while netwatch was down.
                     self.store.lock().unwrap().delete_ban(&b.target)?;
+                    if let Some(o) = &self.otel {
+                        o.unban(&b.target, "expired");
+                    }
                     continue;
                 }
                 k.block(&net)?;

@@ -21,7 +21,7 @@ export default function Geo() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Geography</h1>
+        <h1>Countries & networks</h1>
         <div className="filters">
           <Segmented<Win>
             label="Window"
@@ -85,7 +85,7 @@ export default function Geo() {
                     {s.asns.map((a) => (
                       <tr key={a.asn}>
                         <td className="mono">
-                          <a href={`#/sources?q=${encodeURIComponent(`AS${a.asn}`)}`}>AS{a.asn}</a>
+                          <a href={`#/threats/sources?q=${encodeURIComponent(`AS${a.asn}`)}`}>AS{a.asn}</a>
                         </td>
                         <td className="ellipsis asn-cell" title={a.org}>
                           {a.org}

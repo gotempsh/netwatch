@@ -3,7 +3,7 @@ import { destinationsPath, usePoll, type FlowWindow } from "../api/client";
 import { Badge, Card, FilterInput, Flag, IpLink, PanelState, RelTime, Segmented, SortTh } from "../components/ui";
 import { fmtAbsolute, fmtBytes, fmtInt } from "../lib/format";
 import { href, useQueryState } from "../lib/router";
-import { ConnectionsTabs, FLOW_WINDOWS, parseWindow } from "./Connections";
+import { FLOW_WINDOWS, parseWindow } from "./Connections";
 
 const SORTS: DestinationSort[] = ["flows", "bytes", "last", "first"];
 /** Chips shown per cell before "+N". */
@@ -20,7 +20,7 @@ function More({ items }: { items: string[] }) {
 
 function Row({ d, win }: { d: Destination; win: FlowWindow }) {
   const net = [d.asn ? `AS${d.asn}` : null, d.as_org].filter(Boolean).join(" ");
-  const flowsHref = href("/connections", { view: "all", window: win, ip: d.remote, dir: "out" });
+  const flowsHref = href("/traffic/connections", { view: "all", window: win, ip: d.remote, dir: "out" });
   return (
     <tr className={d.failed === d.flows ? "row-failed" : ""}>
       <td className="remote-col">
@@ -55,7 +55,7 @@ function Row({ d, win }: { d: Destination; win: FlowWindow }) {
       <td className="proc-col">
         <span className="chips">
           {d.processes.slice(0, SHOWN).map((p) => (
-            <a key={p} className="proc-link mono small" href={href("/connections", { view: "all", window: win, ip: d.remote, dir: "out", process: p === "unknown" ? null : p.split("/")[0] })} title={`Connections from ${p} to ${d.remote}`}>
+            <a key={p} className="proc-link mono small" href={href("/traffic/connections", { view: "all", window: win, ip: d.remote, dir: "out", process: p === "unknown" ? null : p.split("/")[0] })} title={`Connections from ${p} to ${d.remote}`}>
               {p}
             </a>
           ))}
@@ -112,8 +112,7 @@ export default function Destinations() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Connections</h1>
-        <ConnectionsTabs active="destinations" />
+        <h1>Destinations</h1>
         {d && (
           <span className="muted small">
             {fmtInt(d.destinations)} {scope === "public" ? "internet " : ""}addresses · {fmtInt(d.unnamed)} without a name

@@ -197,27 +197,59 @@ button {
 .nav {
   display: flex;
   gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  align-self: stretch;
 }
 .nav a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--radius);
+  padding: 0 12px;
+  font-size: 14px;
   color: var(--text-2);
   white-space: nowrap;
+  border-bottom: 2px solid transparent;
 }
 .nav a:hover {
-  background: var(--surface-2);
   text-decoration: none;
   color: var(--text);
 }
 .nav a.active {
-  background: var(--surface-3);
   color: var(--text);
-  font-weight: 550;
+  font-weight: 600;
+  border-bottom-color: var(--text);
+}
+/* The pages of the current section, under the top bar. */
+.subnav {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subnav a {
+  padding: 8px 10px 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.subnav a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.subnav a.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.subnav-inner {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
 }
 .nav-count {
   min-width: 18px;
@@ -357,23 +389,41 @@ button {
   .banner {
     padding: 7px 12px;
   }
-  /* Brand and status on the first row, the nav as a full-width scrolling strip
-     below, faded at the right edge so it reads as scrollable. */
+  /* Brand and status on the first row, the five sections as a full-width row
+     below. Five items fit a 390 px screen without scrolling. */
   .topbar {
     flex-wrap: wrap;
     height: auto;
-    padding: 8px 12px 0;
-    gap: 6px 10px;
+    padding: 0 12px;
+    gap: 0 10px;
+  }
+  .brand,
+  .topbar-meta {
+    height: 40px;
   }
   .nav {
     order: 3;
     flex: 1 0 100%;
+    justify-content: space-between;
+    height: 40px;
     margin: 0 -12px;
-    /* Right padding clears the fade, so the last item is readable when scrolled to the end. */
-    padding: 0 28px 6px 12px;
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    padding: 0 4px;
+    border-top: 1px solid var(--border);
   }
-  .topbar-meta .mono {
+  .nav a {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+  .subnav {
+    padding: 0 6px;
+    /* Section pages scroll sideways on a phone; the fade says there is more. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .subnav-inner {
+    padding-right: 24px;
+  }
+  .topbar-meta .mono,
+  .readonly-tag {
     display: none;
   }
 }

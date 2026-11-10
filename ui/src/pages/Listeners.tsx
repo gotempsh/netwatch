@@ -4,7 +4,6 @@ import { ProcessCell } from "../components/domain";
 import { Badge, Card, PanelState, RelTime } from "../components/ui";
 import { fmtAbsolute, fmtDuration, fmtInt } from "../lib/format";
 import { href, useQueryState } from "../lib/router";
-import { NetworkTabs } from "./Interfaces";
 
 function Exposure({ l }: { l: Listener }) {
   return l.exposed ? (
@@ -31,8 +30,7 @@ export default function Listeners() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Network</h1>
-        <NetworkTabs active="listeners" />
+        <h1>Listening ports</h1>
         <span className="muted small">
           {fmtInt(all.length)} listening sockets · {fmtInt(exposed)} exposed
         </span>
@@ -110,7 +108,7 @@ export default function Listeners() {
                       )}
                     </td>
                     <td className="num">
-                      {l.active_flows > 0 ? <a href={href("/connections", { port: l.port, proto: l.proto, dir: "in" })}>{fmtInt(l.active_flows)}</a> : <span className="muted">0</span>}
+                      {l.active_flows > 0 ? <a href={href("/traffic/connections", { port: l.port, proto: l.proto, dir: "in" })}>{fmtInt(l.active_flows)}</a> : <span className="muted">0</span>}
                     </td>
                     <td className="num">
                       {fmtInt(l.remotes)} <span className="muted">/</span> {l.public_remotes > 0 ? <strong>{fmtInt(l.public_remotes)}</strong> : <span className="muted">0</span>}

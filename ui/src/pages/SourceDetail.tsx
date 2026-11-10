@@ -68,7 +68,7 @@ function ConnectionsSection({ d }: { d: Detail }) {
       sub={`${active} active · finished flows from the last 7 days, newest first`}
       flush
       actions={
-        <a className="small" href={href("/connections", { view: "all", ip: d.ip, window: "7d" })}>
+        <a className="small" href={href("/traffic/connections", { view: "all", ip: d.ip, window: "7d" })}>
           Open in Connections
         </a>
       }
@@ -105,7 +105,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
     return (
       <div className="page">
         <p className="crumbs">
-          <a href="#/sources">Sources</a> /
+          <a href="#/threats/sources">Sources</a> /
         </p>
         <h1 className="mono">{ip}</h1>
         {notFound ? (
@@ -128,7 +128,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
   return (
     <div className="page">
       <p className="crumbs">
-        <a href="#/sources">Sources</a> /
+        <a href="#/threats/sources">Sources</a> /
       </p>
       <div className="page-head">
         <h1 className="mono detail-ip">

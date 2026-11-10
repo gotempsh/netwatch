@@ -1,6 +1,6 @@
-// Tiny hash router: #/, #/sources, #/sources/<ip>, #/connections, #/dns, #/interfaces, #/listeners,
-// #/alerts, #/ssh, #/bans, #/geo, #/policy
-// Optional query string after the path: #/sources?sort=syn&q=cn
+// Tiny hash router. Sections and their pages are in sections.ts (#/, #/threats/sources,
+// #/traffic/connections, #/exposure, #/bans, ...); a source is #/sources/<ip>.
+// Optional query string after the path: #/threats/sources?sort=syn&q=cn
 import { useCallback, useSyncExternalStore } from "react";
 
 export interface Route {

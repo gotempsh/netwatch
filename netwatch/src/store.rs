@@ -16,6 +16,14 @@ pub struct Store {
     window_saved: u64,
 }
 
+/// The port is in the key: connections from one address can log the same line in the same second.
+const SSH_EVENTS_SCHEMA: &str = "
+    CREATE TABLE IF NOT EXISTS ssh_events (
+       ts INTEGER NOT NULL, kind TEXT NOT NULL, user TEXT, ip TEXT NOT NULL, method TEXT,
+       location TEXT NOT NULL, port INTEGER, UNIQUE (ts, kind, ip, user, method, port));
+    CREATE INDEX IF NOT EXISTS ssh_events_ts ON ssh_events(ts);
+    CREATE INDEX IF NOT EXISTS ssh_events_ip ON ssh_events(ip, ts);";
+
 /// The window totals. Created in the same transaction as the backfill, so an
 /// interrupted upgrade leaves no table and the next start fills it again.
 const WINDOW_SCHEMA: &str = "
@@ -405,11 +413,6 @@ impl Store {
                 ttl_secs INTEGER, reason TEXT NOT NULL, source TEXT NOT NULL, confidence REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', decided_at INTEGER);
              CREATE INDEX IF NOT EXISTS proposals_status ON proposals(status, created);
-             CREATE TABLE IF NOT EXISTS ssh_events (
-                ts INTEGER NOT NULL, kind TEXT NOT NULL, user TEXT, ip TEXT NOT NULL, method TEXT,
-                location TEXT NOT NULL, port INTEGER, UNIQUE (ts, kind, ip, user, method));
-             CREATE INDEX IF NOT EXISTS ssh_events_ts ON ssh_events(ts);
-             CREATE INDEX IF NOT EXISTS ssh_events_ip ON ssh_events(ip, ts);
              CREATE TABLE IF NOT EXISTS llm_runs (
                 ts INTEGER NOT NULL, kind TEXT NOT NULL, model TEXT NOT NULL, prompt_tokens INTEGER NOT NULL,
                 completion_tokens INTEGER NOT NULL, summary TEXT NOT NULL, proposals INTEGER NOT NULL);
@@ -440,6 +443,7 @@ impl Store {
                 container TEXT, detail TEXT NOT NULL, unit TEXT);
              CREATE INDEX IF NOT EXISTS conn_events_ts ON conn_events(ts);",
         )?;
+        conn.execute_batch(SSH_EVENTS_SCHEMA)?;
         // Columns added after the first release of a table.
         for (table, col, decl) in [
             ("flows", "unit", "TEXT"),
@@ -460,6 +464,27 @@ impl Store {
             }
         }
         let mut conn = conn;
+        // Before the port was in its key, ssh_events merged connections that
+        // logged the same line in the same second.
+        let port_in_key = conn
+            .prepare(
+                "SELECT 1 FROM pragma_index_list('ssh_events') l, pragma_index_info(l.name) i
+                 WHERE l.\"unique\" = 1 AND i.name = 'port'",
+            )?
+            .exists([])?;
+        if !port_in_key {
+            let tx = conn.transaction()?;
+            tx.execute_batch(&format!(
+                "ALTER TABLE ssh_events RENAME TO ssh_events_old;
+                 DROP INDEX IF EXISTS ssh_events_ts;
+                 DROP INDEX IF EXISTS ssh_events_ip;
+                 {SSH_EVENTS_SCHEMA}
+                 INSERT INTO ssh_events (ts, kind, user, ip, method, location, port)
+                   SELECT ts, kind, user, ip, method, location, port FROM ssh_events_old;
+                 DROP TABLE ssh_events_old;"
+            ))?;
+            tx.commit()?;
+        }
         if new_window_table {
             let tx = conn.transaction()?;
             create_window_tables(&tx)?;
@@ -1288,8 +1313,8 @@ impl Store {
 
     /// Returns false when the event was already stored (journal replay after restart).
     pub fn add_ssh_event(&self, e: &SshEventRow) -> anyhow::Result<bool> {
-        // The UNIQUE key alone lets rows with no user or method in twice (NULLs
-        // never match), and the port keeps apart connections in the same second.
+        // The UNIQUE key alone lets a row with no user, method or port in twice:
+        // NULLs never match there.
         Ok(self.conn.execute(
             "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location, port)
              SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE NOT EXISTS (SELECT 1 FROM ssh_events
@@ -1754,11 +1779,53 @@ mod tests {
             assert!(s.add_ssh_event(&e).unwrap());
             assert!(!s.add_ssh_event(&e).unwrap());
         }
-        // Another connection in the same second.
+        // Other connections in the same second.
         assert!(
             s.add_ssh_event(&ev("invalid_user", Some("admin"), None, 40004))
                 .unwrap()
         );
-        assert_eq!(s.ssh_events(0, None, 10).unwrap().len(), 4);
+        assert!(
+            s.add_ssh_event(&ev("failed", Some("root"), Some("password"), 40005))
+                .unwrap()
+        );
+        assert_eq!(s.ssh_events(0, None, 10).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn ssh_events_from_before_the_port_get_it_in_their_key() {
+        let path = std::env::temp_dir().join(format!("netwatch-sshkey-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            // The table as 0.1.3 created it.
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE ssh_events (
+                    ts INTEGER NOT NULL, kind TEXT NOT NULL, user TEXT, ip TEXT NOT NULL, method TEXT,
+                    location TEXT NOT NULL, UNIQUE (ts, kind, ip, user, method));
+                 CREATE INDEX ssh_events_ts ON ssh_events(ts);
+                 CREATE INDEX ssh_events_ip ON ssh_events(ip, ts);
+                 INSERT INTO ssh_events VALUES (50, 'accepted', 'alice', '198.51.100.7', 'publickey', 'NL');",
+            )
+            .unwrap();
+        }
+        let failed = |port| SshEventRow {
+            ts: 100,
+            kind: "failed".into(),
+            user: Some("root".into()),
+            ip: "203.0.113.9".into(),
+            method: Some("password".into()),
+            location: String::new(),
+            port: Some(port),
+        };
+        // Opening it twice: the rebuild happens once and keeps what was stored.
+        for _ in 0..2 {
+            let s = Store::open(&path).unwrap();
+            assert_eq!(s.ssh_events(0, Some("198.51.100.7"), 10).unwrap().len(), 1);
+            s.add_ssh_event(&failed(40001)).unwrap();
+            s.add_ssh_event(&failed(40002)).unwrap();
+            assert!(!s.add_ssh_event(&failed(40002)).unwrap());
+            assert_eq!(s.ssh_events(0, Some("203.0.113.9"), 10).unwrap().len(), 2);
+        }
+        let _ = std::fs::remove_file(&path);
     }
 }

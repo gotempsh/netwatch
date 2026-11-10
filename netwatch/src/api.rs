@@ -862,7 +862,7 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
         let bytes = match &stored {
             None => e.bytes.since(bytes_since),
             Some((stored, saved)) => {
-                let mut bytes = e.bytes.after(*saved);
+                let mut bytes = e.bytes.after(*saved, bytes_since);
                 window::merge(&mut bytes, stored);
                 bytes
             }

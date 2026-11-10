@@ -494,8 +494,14 @@ impl App {
         if !minutes.is_empty() {
             let stored = self.store.lock().unwrap().add_window_bytes(&minutes);
             if let Err(err) = stored {
-                log::warn!("couldn't store the byte totals, retrying next tick: {err:#}");
-                self.engine.lock().unwrap().bytes.requeue(minutes);
+                let dropped = self.engine.lock().unwrap().bytes.requeue(minutes);
+                if dropped > 0 {
+                    log::warn!(
+                        "couldn't store the byte totals: {err:#}; dropped {dropped} minute(s) over an hour old"
+                    );
+                } else {
+                    log::warn!("couldn't store the byte totals, retrying next tick: {err:#}");
+                }
             }
         }
         {

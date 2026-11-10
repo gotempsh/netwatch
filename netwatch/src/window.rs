@@ -159,6 +159,10 @@ pub struct ByteWindows {
 /// Addresses kept in `ByteWindows::place`'s cache before it starts over.
 const PLACES: usize = 20_000;
 
+/// Closed minutes kept for the store while it fails to take them; older
+/// ones are dropped, as the flows of those ticks are.
+const UNSAVED: usize = 60;
+
 impl ByteWindows {
     /// Counts `bytes_in`/`bytes_out` that flow `f` moved by `now`.
     pub fn add(&mut self, now: i64, f: &FlowRow, bytes_in: u64, bytes_out: u64) {
@@ -229,10 +233,14 @@ impl ByteWindows {
         std::mem::take(&mut self.unsaved)
     }
 
-    /// Hands back minutes the store failed to take, to try again.
-    pub fn requeue(&mut self, mut minutes: Vec<Closed>) {
+    /// Hands back minutes the store failed to take, to try again; keeps the
+    /// newest `UNSAVED` and returns how many older ones it dropped.
+    pub fn requeue(&mut self, mut minutes: Vec<Closed>) -> usize {
         minutes.append(&mut self.unsaved);
+        let dropped = minutes.len().saturating_sub(UNSAVED);
+        minutes.drain(..dropped);
         self.unsaved = minutes;
+        dropped
     }
 
     /// Minutes starting at or after `since`, the open one included.
@@ -248,21 +256,21 @@ impl ByteWindows {
     }
 
     /// What a store read that had minutes up to `saved` (`Store::window_saved`)
-    /// lacks: the minutes closed after those, and the open one.
-    pub fn after(&self, saved: u64) -> Bucket {
+    /// lacks, from `since` on: the minutes closed after those, and the open one.
+    pub fn after(&self, saved: u64, since: i64) -> Bucket {
         let mut out = Bucket::new();
-        for m in &self.minutes {
-            if m.seq > saved {
-                merge(&mut out, &m.bytes);
-            }
+        let wanted = |m: &Closed| m.seq > saved && m.ts >= since;
+        for m in self.minutes.iter().filter(|m| wanted(m)) {
+            merge(&mut out, &m.bytes);
         }
-        // Unsaved minutes older than an hour are no longer in `minutes`.
-        for m in &self.unsaved {
-            if m.seq > saved && !self.minutes.iter().any(|k| k.seq == m.seq) {
-                merge(&mut out, &m.bytes);
-            }
+        // Unsaved minutes that left `minutes`, being over an hour old.
+        let oldest = self.minutes.front().map_or(i64::MAX, |m| m.ts);
+        for m in self.unsaved.iter().filter(|m| wanted(m) && m.ts < oldest) {
+            merge(&mut out, &m.bytes);
         }
-        if let Some((_, b)) = &self.current {
+        if let Some((t, b)) = &self.current
+            && *t >= since
+        {
             merge(&mut out, b);
         }
         out
@@ -313,7 +321,7 @@ mod tests {
         assert_eq!(saved.len(), 1);
         assert_eq!((saved[0].seq, saved[0].ts), (1, 1_000_020));
         assert_eq!(total(&saved[0].bytes), (150, 15));
-        assert_eq!(total(&w.after(1)), (7, 1));
+        assert_eq!(total(&w.after(1, i64::MIN)), (7, 1));
         assert!(w.take_unsaved().is_empty());
         w.close();
         assert_eq!(total(&w.take_unsaved()[0].bytes), (7, 1));
@@ -354,9 +362,9 @@ mod tests {
         w.add(960, &a, 1, 0);
         w.add(1_020, &a, 2, 0); // closes 960 as minute 1
         w.add(1_080, &a, 4, 0); // closes 1020 as minute 2
-        assert_eq!(total(&w.after(0)), (7, 0));
-        assert_eq!(total(&w.after(1)), (6, 0));
-        assert_eq!(total(&w.after(2)), (4, 0));
+        assert_eq!(total(&w.after(0, 0)), (7, 0));
+        assert_eq!(total(&w.after(1, 0)), (6, 0));
+        assert_eq!(total(&w.after(2, 0)), (4, 0));
 
         // A failed write puts minutes back, and they still count until stored.
         let unsaved = w.take_unsaved();
@@ -366,8 +374,31 @@ mod tests {
         let unsaved = w.take_unsaved();
         assert_eq!(unsaved.iter().map(|m| m.seq).collect::<Vec<_>>(), [1, 2, 3]);
         w.requeue(unsaved);
-        assert_eq!(total(&w.after(0)), (15, 0));
-        assert_eq!(total(&w.after(2)), (12, 0));
+        assert_eq!(total(&w.after(0, 0)), (15, 0));
+        assert_eq!(total(&w.after(2, 0)), (12, 0));
+        // Only from the window's start.
+        assert_eq!(total(&w.after(0, 1_000)), (14, 0));
+    }
+
+    #[test]
+    fn a_store_that_keeps_failing_holds_back_only_the_last_hour() {
+        let mut w = ByteWindows::default();
+        let a = row("192.0.2.1", "curl");
+        for i in 0..3 * UNSAVED as i64 {
+            w.add(i * 60, &a, 1, 0);
+            let unsaved = w.take_unsaved();
+            w.requeue(unsaved);
+        }
+        let unsaved = w.take_unsaved();
+        assert_eq!(unsaved.len(), UNSAVED);
+        assert_eq!(unsaved.last().unwrap().seq, 3 * UNSAVED as u64 - 1);
+        assert_eq!(w.requeue(unsaved), 0);
+        let one = Closed {
+            seq: 999,
+            ts: 0,
+            bytes: Bucket::new(),
+        };
+        assert_eq!(w.requeue(vec![one]), 1);
     }
 
     #[test]

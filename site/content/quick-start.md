@@ -15,6 +15,8 @@ ssh -L 9180:127.0.0.1:9180 user@server
 
 Then browse [http://127.0.0.1:9180](http://127.0.0.1:9180). On a Mac running netwatch locally, open that address directly.
 
+No server yet? The [live demo](/demo/) is the same UI on demo data, so you can follow the steps below in your browser.
+
 ![The Overview page: host status, live rates, flagged sources, bans and proposals](/screenshots/overview.png "Overview: the host, live packet and SYN rates, flagged sources, active bans and pending proposals.")
 
 The strip at the top shows the host, the interface XDP is attached to and how (driver or generic), the mode, whether bans drop packets, the threat feeds loaded and, if configured, the model and its token budget.

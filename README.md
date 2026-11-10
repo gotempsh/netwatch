@@ -11,7 +11,7 @@ netwatch is a single-binary traffic monitor for Linux servers. It is built on [a
 
 You browse the results in a read-only web UI that listens only on `127.0.0.1`.
 
-**Documentation: [gotempsh.github.io/netwatch](https://gotempsh.github.io/netwatch/)**
+**Documentation: [gotempsh.github.io/netwatch](https://gotempsh.github.io/netwatch/)** · **[Try the live demo](https://gotempsh.github.io/netwatch/demo/)**, the web UI on demo data in your browser, nothing to install.
 
 It runs as root, so [Security and privacy](https://gotempsh.github.io/netwatch/security/) lists every outbound request it makes, what it stores and how to verify a release. [Compared to other tools](https://gotempsh.github.io/netwatch/comparison/) sets it next to fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch and Little Snitch. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
@@ -65,7 +65,7 @@ flowchart TB
 
 ![Policy and AI: an English policy and the rules compiled from it](docs/screenshots/policy.png)
 
-The screenshots use the UI's demo data. To click through it without installing anything, run `npm --prefix ui ci && npm --prefix ui run dev:mock`.
+The screenshots use the UI's demo data. To click through it without installing anything, open the [live demo](https://gotempsh.github.io/netwatch/demo/).
 
 ## What it does
 
@@ -452,6 +452,7 @@ Each line is a JSON object with a version field `v`; netwatch ignores versions i
 cargo test -p netwatch
 sudo scripts/e2e-netns.sh        # veth + network namespace: scan, SSH brute force, approve, drop, unban, flows, DNS, owners
 npm --prefix ui run dev:mock     # UI against built-in mock data
+npm --prefix ui run build:demo   # the hosted demo, into site/dist/demo/ (run after the docs build)
 npm --prefix ui run dev          # UI against a local daemon on :9180
 ```
 

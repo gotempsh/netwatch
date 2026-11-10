@@ -8,6 +8,8 @@ netwatch counts every packet in the kernel with eBPF/XDP and keeps a record of e
 
 ![Overview: live rates, active bans, pending proposals and insights](/screenshots/overview.png "The Overview page. Screenshots in these docs use the UI's built-in demo data.")
 
+**[Try the live demo](/demo/)**: the same web UI on demo data, in your browser. Nothing to install and no server behind it.
+
 ```shell
 curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
@@ -61,6 +63,7 @@ The daemon is one Rust binary with the eBPF programs and the web UI embedded. St
 - [**Installation** Linux release, Docker image, macOS, or from source.](/installation)
 - [**Quick start** Open the UI, read the first insights, approve a ban.](/quick-start)
 - [**The web UI** A tour of every page, with screenshots.](/web-ui)
+- [**Live demo** Click through the web UI on demo data, no install.](/demo/)
 - [**CLI reference** Every command and its options.](/cli)
 - [**Security and privacy** What runs as root, what leaves the machine, what is stored.](/security)
 - [**Compared to other tools** fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch, Little Snitch.](/comparison)

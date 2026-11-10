@@ -155,7 +155,8 @@ function agentMarkdown(p) {
     .replace(/\]\((\/[^)\s]*)/g, (_, u) => {
       const [pathPart, hash = ""] = u.split("#");
       const slug = pathPart.slice(1) || "index";
-      const target = pathPart.startsWith("/screenshots/") ? `${SITE_URL}${pathPart}` : `${SITE_URL}/${slug}.md`;
+      // Screenshots and the demo (built into dist/demo/ by ui/) aren't pages.
+      const target = /^\/(screenshots|demo)\//.test(pathPart) ? `${SITE_URL}${pathPart}` : `${SITE_URL}/${slug}.md`;
       return `](${target}${hash ? `#${hash}` : ""}`;
     });
   return `# ${p.title}\n\n> ${p.description}\n\n${body.trim()}\n`;

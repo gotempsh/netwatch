@@ -9,7 +9,7 @@
   font-variant-numeric: tabular-nums;
 }
 .hot {
-  color: var(--critical);
+  color: var(--critical-text);
   font-weight: 600;
 }
 .stale .pillars,
@@ -141,7 +141,7 @@
   padding-top: 1px;
 }
 .sev-critical .issue-sev {
-  color: var(--critical);
+  color: var(--critical-text);
 }
 .sev-warn .issue-sev {
   color: var(--text);
@@ -671,7 +671,7 @@
   font-size: 11px;
 }
 .map-node .bad {
-  fill: var(--critical);
+  fill: var(--critical-text);
   font-weight: 600;
 }
 /* --serious is a mark colour; mixed toward the text ink it passes AA as text. */
@@ -733,7 +733,7 @@
 }
 .map-edge-label {
   font-size: 11px;
-  fill: var(--critical);
+  fill: var(--critical-text);
   font-weight: 600;
   paint-order: stroke;
   stroke: var(--surface);
@@ -786,7 +786,7 @@
     padding: 14px;
   }
   .verdict-title {
-    font-size: 18px;
+    font-size: 20px;
   }
   .next {
     min-width: 0;
@@ -880,7 +880,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--critical);
+  color: var(--critical-text);
   font-weight: 600;
 }
 @media (max-width: 900px) {

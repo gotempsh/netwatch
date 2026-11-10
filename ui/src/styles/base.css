@@ -32,6 +32,8 @@
   --warning: #fab219;
   --serious: #ec835a;
   --critical: #d03b3b;
+  /* --critical is a mark colour; text in that role uses this, AA on every surface. */
+  --critical-text: #f07370;
 
   --seq-fill: #3987e5;
   --seq-track: #1c2a3d;
@@ -67,6 +69,7 @@
     --series-3: #1baf7a;
     --series-4: #eda100;
     --deemph: #b5b3ac;
+    --critical-text: #b83232;
 
     --seq-fill: #3987e5;
     --seq-track: #cde2fb;
@@ -94,7 +97,7 @@ body {
 }
 
 h1 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.01em;
@@ -133,7 +136,17 @@ button {
   color: var(--muted);
 }
 .small {
-  font-size: 11.5px;
+  font-size: 12px;
+}
+/* Monospace inside small print and tables keeps the 12px floor. */
+.small .mono,
+.small code,
+.card-sub .mono,
+.tbl .mono {
+  font-size: max(12px, 0.94em);
+}
+p {
+  text-wrap: pretty;
 }
 .nowrap {
   white-space: nowrap;
@@ -149,7 +162,7 @@ button {
   white-space: nowrap;
 }
 .error-text {
-  color: var(--critical);
+  color: var(--critical-text);
 }
 .spacer {
   flex: 1;

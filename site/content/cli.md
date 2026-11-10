@@ -102,9 +102,12 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 | `netwatch install` | **root**, macOS: install this binary as a launchd daemon and start it |
 | `netwatch uninstall [--purge]` | **root**, macOS: stop and remove the daemon; `--purge` also deletes the config, database and log |
 | `netwatch update-geoip` | **root**: download the DB-IP Lite databases |
+| `netwatch update --check` | say whether a newer release exists, and whether automatic updates are on |
+| `netwatch update` | **root**: install the latest release and restart the daemon; puts the previous version back if the new one doesn't start |
+| `netwatch update --auto on\|off` | **root**: install new releases daily, or stop |
 | `netwatch default-config` | print the default configuration |
 
-On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation).
+On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`.
 
 ## Agent skill
 

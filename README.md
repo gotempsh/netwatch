@@ -114,6 +114,14 @@ curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 
 The script picks the archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`. Running it again upgrades netwatch and keeps your configuration. `NETWATCH_VERSION=v0.1.0` installs a specific release.
 
+From 0.1.3, netwatch updates itself from the latest release. It checks the download against `SHA256SUMS`, and if the new daemon doesn't start, it puts the previous version back:
+
+```shell
+netwatch update --check          # is there a newer release? (no root)
+sudo netwatch update             # install it and restart the daemon
+sudo netwatch update --auto on   # install new releases daily (off by default)
+```
+
 To do the same by hand (use `aarch64` on ARM):
 
 ```shell

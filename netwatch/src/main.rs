@@ -22,6 +22,7 @@ mod skill;
 mod ssh;
 mod store;
 mod temps;
+mod update;
 mod util;
 mod window;
 
@@ -231,6 +232,22 @@ enum Cmd {
         #[arg(long, requires = "install")]
         dir: Option<PathBuf>,
     },
+    /// Install the latest release over this one and restart the daemon (root).
+    /// It checks the download against the release's SHA256SUMS, and if the new
+    /// daemon doesn't start, puts the running version back.
+    ///
+    ///   netwatch update --check          # is there a newer release? (no root)
+    ///   sudo netwatch update             # install it
+    ///   sudo netwatch update --auto on   # install new releases daily
+    #[command(verbatim_doc_comment)]
+    Update {
+        /// Only say whether a newer release exists, and whether automatic updates are on.
+        #[arg(long, conflicts_with = "auto")]
+        check: bool,
+        /// Turn daily automatic updates on or off.
+        #[arg(long, value_parser = ["on", "off"])]
+        auto: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -315,6 +332,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Run => daemon::run(cfg).await?,
+        Cmd::Update { check, auto } => {
+            update::run(&cli.config, &cfg, check, auto.as_deref()).await?
+        }
         Cmd::DefaultConfig | Cmd::Skill { .. } => unreachable!(),
         #[cfg(target_os = "macos")]
         Cmd::Install | Cmd::Uninstall { .. } | Cmd::UpdateGeoip => unreachable!(),

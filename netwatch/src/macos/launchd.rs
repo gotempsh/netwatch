@@ -12,6 +12,7 @@ use crate::config::Config;
 
 pub const LABEL: &str = "dev.netwatch";
 const GEOIP_LABEL: &str = "dev.netwatch.geoip";
+const UPDATE_LABEL: &str = "dev.netwatch.update";
 const BIN: &str = "/usr/local/bin/netwatch";
 const LOG: &str = "/var/log/netwatch.log";
 
@@ -65,6 +66,32 @@ fn geoip_plist(config: &Path) -> String {
         &[BIN, "--config", &config.to_string_lossy(), "update-geoip"],
         "\t<key>StartCalendarInterval</key>\n\t<dict>\n\t\t<key>Day</key>\n\t\t<integer>3</integer>\n\t\t<key>Hour</key>\n\t\t<integer>4</integer>\n\t</dict>\n",
     )
+}
+
+fn update_plist(config: &Path) -> String {
+    // Daily at 05:17; launchd runs a missed time when the Mac wakes.
+    plist(
+        UPDATE_LABEL,
+        &[BIN, "--config", &config.to_string_lossy(), "update"],
+        "\t<key>StartCalendarInterval</key>\n\t<dict>\n\t\t<key>Hour</key>\n\t\t<integer>5</integer>\n\t\t<key>Minute</key>\n\t\t<integer>17</integer>\n\t</dict>\n",
+    )
+}
+
+pub fn update_job_installed() -> bool {
+    plist_path(UPDATE_LABEL).exists()
+}
+
+/// `netwatch update --auto on|off`: the daily `netwatch update` job.
+pub fn set_update_job(config: &Path, on: bool) -> anyhow::Result<()> {
+    let path = plist_path(UPDATE_LABEL);
+    let _ = launchctl(&["bootout", &format!("system/{UPDATE_LABEL}")]);
+    if !on {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    std::fs::write(&path, update_plist(config))?;
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o644))?;
+    launchctl(&["bootstrap", "system", &path.to_string_lossy()])
 }
 
 fn launchctl(args: &[&str]) -> anyhow::Result<()> {
@@ -148,7 +175,7 @@ pub fn install(config: &Path) -> anyhow::Result<()> {
 
 pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     require_root("uninstall")?;
-    for label in [LABEL, GEOIP_LABEL] {
+    for label in [LABEL, GEOIP_LABEL, UPDATE_LABEL] {
         let _ = launchctl(&["bootout", &format!("system/{label}")]);
         let _ = std::fs::remove_file(plist_path(label));
     }

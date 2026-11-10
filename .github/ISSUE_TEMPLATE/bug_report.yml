@@ -60,7 +60,7 @@ body:
     id: status
     attributes:
       label: netwatch status
-      description: The output of `netwatch status` (`docker exec netwatch netwatch status` in Docker). Redact public IPs.
+      description: The output of `netwatch status`. In Docker, `docker exec netwatch netwatch status`; with docker compose, `docker compose exec netwatch netwatch status`. Redact public IPs.
       render: text
   - type: textarea
     id: logs
@@ -71,10 +71,11 @@ body:
         - Linux: `journalctl -u netwatch --since "1 hour ago"`
         - macOS: `/var/log/netwatch.log`
         - Docker: `docker logs netwatch`
+        - docker compose: `docker compose logs netwatch`
       render: text
   - type: textarea
     id: config
     attributes:
       label: Config
-      description: The settings you changed in `/etc/netwatch/netwatch.toml`, if any. Leave out keys and webhook URLs.
+      description: The settings you changed in `/etc/netwatch/netwatch.toml` (`deploy/netwatch.toml` in the checkout, with docker compose), if any. Leave out keys and webhook URLs.
       render: toml

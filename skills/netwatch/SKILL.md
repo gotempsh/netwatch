@@ -14,7 +14,7 @@ netwatch status
 ```
 
 - One summary line per topic (mode, rates, sources, flows) means it is running.
-- `cannot reach the daemon at http://127.0.0.1:9180 (is netwatch running?)`: the daemon is down. On Linux check `systemctl status netwatch` and `journalctl -u netwatch -n 50`. On macOS it runs as the launchd daemon `dev.netwatch`.
+- `nothing answers at http://127.0.0.1:9180, so the netwatch daemon isn't running there`: the daemon is down or not installed. On Linux check `systemctl status netwatch` and `journalctl -u netwatch -n 50`. On macOS it runs as the launchd daemon `dev.netwatch` (`sudo launchctl print system/dev.netwatch`, log in `/var/log/netwatch.log`).
 - `mode observe` (the default) means netwatch never bans on its own: every ban is a proposal a person approves. `mode enforce` bans automatically.
 
 Reading needs no privileges. Every change (ban, unban, allow, approve, reject, policy, analyze) needs root and goes through a control socket; without root it fails with `(is the daemon running, and are you root?)`.

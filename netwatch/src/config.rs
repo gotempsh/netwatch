@@ -365,7 +365,15 @@ impl Config {
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(path)
                 .with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str::<Self>(&text).with_context(|| format!("parsing {}", path.display()))?
+            let (cfg, unknown) =
+                Self::parse(&text).with_context(|| format!("parsing {}", path.display()))?;
+            for key in unknown {
+                log::warn!(
+                    "{}: unknown setting `{key}` ignored; `netwatch default-config` lists them all",
+                    path.display()
+                );
+            }
+            cfg
         } else {
             log::warn!("{} not found, using built-in defaults", path.display());
             Self::default()
@@ -380,9 +388,23 @@ impl Config {
         Ok(cfg)
     }
 
+    /// The config, and the keys in `text` it has no setting for (typos, or
+    /// settings from another version), which serde would drop silently.
+    fn parse(text: &str) -> anyhow::Result<(Self, Vec<String>)> {
+        let mut unknown = Vec::new();
+        let cfg = serde_ignored::deserialize(toml::Deserializer::parse(text)?, |key| {
+            unknown.push(key.to_string())
+        })?;
+        Ok((cfg, unknown))
+    }
+
     fn validate(&self) -> anyhow::Result<()> {
-        crate::util::parse_duration(&self.ban.default_ttl)?;
-        crate::util::parse_duration(&self.ban.max_ttl)?;
+        for (key, v) in [
+            ("ban.default_ttl", &self.ban.default_ttl),
+            ("ban.max_ttl", &self.ban.max_ttl),
+        ] {
+            crate::util::parse_duration(v).with_context(|| format!("{key} = {v:?}"))?;
+        }
         anyhow::ensure!(self.tick_secs >= 1, "tick_secs must be >= 1");
         let addr: std::net::SocketAddr = self
             .api_listen
@@ -403,5 +425,44 @@ impl Config {
 
     pub fn api_url(&self) -> String {
         format!("http://{}", self.api_listen)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_settings_are_reported() {
+        let (cfg, unknown) = Config::parse(
+            "interfase = \"en1\"\nmode = \"enforce\"\n[llm]\nmodle = \"x\"\n[[feeds]]\nname = \"a\"\nurl = \"https://example.com/a\"\nabuot = \"b\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.mode, Mode::Enforce);
+        let mut unknown = unknown;
+        unknown.sort();
+        assert_eq!(unknown, ["feeds.0.abuot", "interfase", "llm.modle"]);
+    }
+
+    #[test]
+    fn the_default_config_has_no_unknown_settings() {
+        let text = toml::to_string_pretty(&Config::default()).unwrap();
+        let (_, unknown) = Config::parse(&text).unwrap();
+        assert!(unknown.is_empty(), "{unknown:?}");
+        // Optional settings default-config leaves out are known too.
+        let (_, unknown) = Config::parse("[llm]\napi_key = \"k\"\n").unwrap();
+        assert!(unknown.is_empty(), "{unknown:?}");
+    }
+
+    #[test]
+    fn errors_name_the_setting() {
+        let err = Config::parse("mode = \"enforced\"\n").unwrap_err();
+        assert!(format!("{err:#}").contains("enforced"), "{err:#}");
+        let (cfg, _) = Config::parse("[ban]\ndefault_ttl = \"forever\"\n").unwrap();
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            format!("{err:#}").starts_with("ban.default_ttl = \"forever\": "),
+            "{err:#}"
+        );
     }
 }

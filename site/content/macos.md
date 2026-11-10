@@ -32,7 +32,7 @@ Then open [http://127.0.0.1:9180](http://127.0.0.1:9180).
 
 `sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too.
 
-Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file.
+Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. After editing the config or that file, restart the daemon with `sudo launchctl kickstart -k system/dev.netwatch`. If the CLI says nothing answers at `127.0.0.1:9180`, `sudo launchctl print system/dev.netwatch` shows whether launchd is running it, and `/var/log/netwatch.log` shows why it stopped.
 
 ## What differs from Linux
 
@@ -56,4 +56,4 @@ Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daem
 
 ## Replaying a capture
 
-`NETWATCH_PCAP=capture.pcap netwatch run` replays a capture file through the whole pipeline instead of capturing, without root. It is useful for testing rules: point `db_path` and the sockets at a scratch directory.
+`NETWATCH_PCAP=capture.pcap netwatch run` replays a capture file through the whole pipeline instead of capturing, without root. It is useful for testing rules: point `db_path` and the sockets at a scratch directory. It reads classic pcap files; convert a Wireshark pcapng first with `tcpdump -r in.pcapng -w out.pcap`. A capture cut short at the end is read up to its last whole packet.

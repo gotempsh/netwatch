@@ -72,7 +72,8 @@ mode = "enforce"
 ```
 
 ```shell
-sudo systemctl restart netwatch
+sudo systemctl restart netwatch                    # Linux
+sudo launchctl kickstart -k system/dev.netwatch    # macOS
 ```
 
 In enforce mode sources that cross `ban.auto_ban_score` are banned automatically, with TTLs that grow ×4 for each repeat offence, up to 30 days. Allowlisted addresses and `never_ban` rules still win. [Bans and policy](/bans-and-policy) explains the rules and how to write your own.

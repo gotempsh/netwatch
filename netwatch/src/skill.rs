@@ -152,7 +152,7 @@ mod tests {
         let control = include_str!("control.rs");
         let api = include_str!("api.rs");
         assert!(
-            main.contains("cannot reach the daemon at") && main.contains("(is netwatch running?)")
+            main.contains("nothing answers at {base}, so the netwatch daemon isn't running there")
         );
         assert!(control.contains("(is the daemon running, and are you root?)"));
         assert!(SKILL.contains(&format!(

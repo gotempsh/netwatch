@@ -243,6 +243,25 @@ pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn writing(path: &Path) -> String {
+    if super::is_root() {
+        format!("writing {}", path.display())
+    } else {
+        format!(
+            "can't write {}; run it as root: sudo netwatch update-geoip",
+            path.display()
+        )
+    }
+}
+
+fn writable(dir: &Path) -> bool {
+    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_encoded_bytes()) else {
+        return false;
+    };
+    // SAFETY: c is NUL-terminated.
+    unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+}
+
 /// "2026-11" and the month before.
 fn months(now: chrono::DateTime<chrono::Utc>) -> [String; 2] {
     use chrono::Datelike;
@@ -256,7 +275,11 @@ fn months(now: chrono::DateTime<chrono::Utc>) -> [String; 2] {
 pub fn update_geoip(cfg: &Config) -> anyhow::Result<()> {
     for (kind, dest) in [("city", &cfg.geoip_city), ("asn", &cfg.geoip_asn)] {
         if let Some(dir) = dest.parent() {
-            std::fs::create_dir_all(dir)?;
+            std::fs::create_dir_all(dir).with_context(|| writing(dir))?;
+            // Fail before downloading 100 MB that can't be saved.
+            if !super::is_root() && !writable(dir) {
+                bail!("{}", writing(dir));
+            }
         }
         let tmp_gz = dest.with_extension("mmdb.gz.part");
         let tmp = dest.with_extension("mmdb.part");
@@ -280,8 +303,8 @@ pub fn update_geoip(cfg: &Config) -> anyhow::Result<()> {
             if !out.status.success() || out.stdout.is_empty() {
                 continue;
             }
-            std::fs::write(&tmp, &out.stdout)?;
-            std::fs::rename(&tmp, dest)?;
+            std::fs::write(&tmp, &out.stdout).with_context(|| writing(&tmp))?;
+            std::fs::rename(&tmp, dest).with_context(|| writing(dest))?;
             println!("updated {} ({month})", dest.display());
             done = true;
             break;

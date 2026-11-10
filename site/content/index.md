@@ -14,6 +14,8 @@ curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 
 That installs a systemd service (a launchd daemon on macOS) in **observe** mode: it watches and proposes, and blocks nothing until you approve. [Installation](/installation) covers Docker, macOS and building from source.
 
+It runs as root and sees all your traffic, so [Security and privacy](/security) lists what it does with that: every request it makes to the internet, what it stores, and how to verify a release. [Compared to other tools](/comparison) sets it next to fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch and Little Snitch.
+
 ## What it does
 
 - **Counts traffic in the kernel.** Packets, bytes, SYNs, UDP and ICMP per source, plus every local port each source touches. The XDP program fails open: it only drops sources you banned.
@@ -60,3 +62,5 @@ The daemon is one Rust binary with the eBPF programs and the web UI embedded. St
 - [**Quick start** Open the UI, read the first insights, approve a ban.](/quick-start)
 - [**The web UI** A tour of every page, with screenshots.](/web-ui)
 - [**CLI reference** Every command and its options.](/cli)
+- [**Security and privacy** What runs as root, what leaves the machine, what is stored.](/security)
+- [**Compared to other tools** fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch, Little Snitch.](/comparison)

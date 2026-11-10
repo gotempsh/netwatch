@@ -20,7 +20,7 @@ const VERSION = fs
   .match(/^version\s*=\s*"([^"]+)"/m)[1];
 
 const NAV = [
-  { title: "Getting started", pages: ["index", "installation", "quick-start", "web-ui"] },
+  { title: "Getting started", pages: ["index", "installation", "quick-start", "web-ui", "security", "comparison"] },
   { title: "Running it", pages: ["docker", "macos"] },
   { title: "Features", pages: ["detection", "connections", "bans-and-policy", "exploits", "ai-analysis", "agents", "slack", "opentelemetry", "temps"] },
   { title: "Reference", pages: ["cli", "configuration", "api", "development"] },

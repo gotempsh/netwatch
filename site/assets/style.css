@@ -81,7 +81,9 @@ svg {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px;
+  /* The bar spans the window; its contents line up with .layout: the brand
+     with the sidebar links, the buttons with the right column's edge. */
+  padding: 0 max(20px, calc((100% - 1400px) / 2 + 20px)) 0 max(20px, calc((100% - 1400px) / 2 + 30px));
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: saturate(180%) blur(12px);
   -webkit-backdrop-filter: saturate(180%) blur(12px);

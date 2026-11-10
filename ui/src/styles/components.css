@@ -132,9 +132,6 @@
 .row-allow td {
   color: var(--text-2);
 }
-.row-listening td:first-child {
-  box-shadow: inset 3px 0 0 var(--serious);
-}
 .row-listening {
   background: color-mix(in srgb, var(--serious) 7%, transparent);
 }
@@ -143,9 +140,6 @@
 }
 .row-accepted {
   background: color-mix(in srgb, var(--good) 8%, transparent);
-}
-.row-accepted td:first-child {
-  box-shadow: inset 3px 0 0 var(--good);
 }
 .row-disabled td {
   opacity: 0.55;
@@ -619,14 +613,13 @@ a.tile-link:hover {
   flex-direction: column;
 }
 .insight {
-  padding: 9px 0 10px 12px;
-  border-left: 3px solid var(--tone, var(--accent));
+  padding: 9px 0 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .insight + .insight {
-  margin-top: 8px;
+  border-top: 1px solid var(--border);
 }
 .insight.level-info {
   --tone: var(--accent);
@@ -742,9 +735,9 @@ a.tile-link:hover {
 .policy-text {
   margin: 0;
   padding: 10px 14px;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
   background: var(--surface-2);
-  border-radius: 0 6px 6px 0;
+  border-radius: 6px;
   font-size: 13.5px;
   white-space: pre-wrap;
 }
@@ -811,20 +804,11 @@ code.json {
   padding: 2px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
-.row-failed td:first-child {
-  box-shadow: inset 3px 0 0 var(--critical);
-}
 .row-failed {
   background: color-mix(in srgb, var(--critical) 7%, transparent);
 }
-.row-warn td:first-child {
-  box-shadow: inset 3px 0 0 var(--warning);
-}
 .row-warn {
   background: color-mix(in srgb, var(--warning) 6%, transparent);
-}
-.row-active td:first-child {
-  box-shadow: inset 3px 0 0 var(--good);
 }
 .addr-cell {
   max-width: 230px;

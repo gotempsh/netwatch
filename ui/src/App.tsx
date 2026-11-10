@@ -7,6 +7,7 @@ import { modeChip } from "./lib/mode";
 import { REDIRECTS, SECTIONS, sectionOf } from "./lib/sections";
 import { Badge, RelTime } from "./components/ui";
 import Status from "./pages/Status";
+import Threats from "./pages/Threats";
 import Sources from "./pages/Sources";
 import SourceDetail from "./pages/SourceDetail";
 import Alerts from "./pages/Alerts";
@@ -22,6 +23,7 @@ import Dns from "./pages/Dns";
 
 const PAGES: Record<string, () => ReactNode> = {
   "/": () => <Status />,
+  "/threats": () => <Threats />,
   "/threats/sources": () => <Sources />,
   "/threats/alerts": () => <Alerts />,
   "/threats/ssh": () => <Ssh />,

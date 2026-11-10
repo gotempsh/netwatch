@@ -64,6 +64,7 @@ pub async fn serve(app: Arc<App>) {
         .route("/api/listeners", get(listeners))
         .route("/api/dns", get(dns))
         .route("/api/conn_events", get(conn_events))
+        .route("/api/timeline", get(timeline))
         .fallback(static_file)
         .with_state(app);
     match tokio::net::TcpListener::bind(&addr).await {
@@ -1172,6 +1173,190 @@ async fn dns(State(app): AppState, Query(q): Query<DnsQuery>) -> ApiResult<Value
     Ok(Json(json!({ "queries": recent, "top": top })))
 }
 
+// ---------------------------------------------------------------------------
+// Attack timeline: one lane per flagged source, so the UI draws every lane from
+// one request instead of one /api/sources/{ip} per source.
+
+#[derive(Deserialize)]
+struct TimelineQuery {
+    /// 24h or 7d (default).
+    window: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct TimelineHour {
+    hour: i64,
+    in_packets: i64,
+    syn: i64,
+    blocked: i64,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+struct TimelineEvent {
+    ts: i64,
+    /// finding, proposal, ban or login
+    kind: &'static str,
+    label: String,
+    /// The finding's kind (ssh_bruteforce, port_scan, ...), for findings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finding: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TimelineRow {
+    ip: String,
+    geo: GeoInfo,
+    score: u32,
+    findings: Vec<Finding>,
+    allowlisted: bool,
+    /// banned, ban proposed or watching
+    status: &'static str,
+    ssh_accepted: u64,
+    first_seen: i64,
+    last_seen: i64,
+    hours: Vec<TimelineHour>,
+    events: Vec<TimelineEvent>,
+    ban: Option<BanView>,
+}
+
+/// What happened to a source inside the window, oldest first: findings raised,
+/// proposals made, the ban, and accepted logins (the one event that means it got in).
+fn timeline_events(
+    alerts: &[AlertRow],
+    proposals: &[ProposalRow],
+    ssh: &[SshEventRow],
+    ban: Option<&BanRow>,
+    since: i64,
+) -> Vec<TimelineEvent> {
+    let mut ev: Vec<TimelineEvent> = Vec::new();
+    for a in alerts.iter().filter(|a| a.first_ts >= since) {
+        ev.push(TimelineEvent {
+            ts: a.first_ts,
+            kind: "finding",
+            label: a.summary.clone(),
+            finding: Some(a.kind.clone()),
+        });
+    }
+    for p in proposals.iter().filter(|p| p.created >= since) {
+        ev.push(TimelineEvent {
+            ts: p.created,
+            kind: "proposal",
+            label: format!("{} proposed (#{}, {})", p.action, p.id, p.status),
+            finding: None,
+        });
+    }
+    if let Some(b) = ban.filter(|b| b.created >= since) {
+        ev.push(TimelineEvent {
+            ts: b.created,
+            kind: "ban",
+            label: format!("banned ({}): {}", b.source, b.reason),
+            finding: None,
+        });
+    }
+    for e in ssh.iter().filter(|e| e.kind == "accepted" && e.ts >= since) {
+        ev.push(TimelineEvent {
+            ts: e.ts,
+            kind: "login",
+            label: match &e.user {
+                Some(u) => format!("SSH login accepted as {u}"),
+                None => "SSH login accepted".into(),
+            },
+            finding: None,
+        });
+    }
+    ev.sort_by_key(|e| e.ts);
+    ev
+}
+
+fn lane_status(banned: bool, ban_pending: bool) -> &'static str {
+    if banned {
+        "banned"
+    } else if ban_pending {
+        "ban proposed"
+    } else {
+        "watching"
+    }
+}
+
+/// The lanes, highest score first, with what the engine knows; the store fills in
+/// history and events after the engine lock is released.
+fn pick_lanes(e: &Engine, limit: usize, drops: bool) -> Vec<TimelineRow> {
+    let mut picked: Vec<&IpState> = e
+        .states
+        .values()
+        .filter(|s| s.score > 0 && !s.allowlisted)
+        .collect();
+    picked.sort_by(|a, b| b.score.cmp(&a.score).then(b.last_seen.cmp(&a.last_seen)));
+    picked.truncate(limit);
+    picked
+        .into_iter()
+        .map(|st| TimelineRow {
+            ip: st.ip.to_string(),
+            geo: st.geo.clone(),
+            score: st.score,
+            findings: st.findings.clone(),
+            allowlisted: st.allowlisted,
+            status: lane_status(st.banned, false),
+            ssh_accepted: st.ssh.accepted,
+            first_seen: st.first_seen,
+            last_seen: st.last_seen.max(st.ssh.last_event),
+            hours: Vec::new(),
+            events: Vec::new(),
+            ban: e.ban_for(st.ip).cloned().map(|b| ban_view(e, b, drops)),
+        })
+        .collect()
+}
+
+fn fill_lanes(
+    store: &crate::store::Store,
+    rows: &mut [TimelineRow],
+    since: i64,
+) -> anyhow::Result<()> {
+    for r in rows {
+        let alerts = store.alerts(since, Some(&r.ip), 50)?;
+        let proposals = store.proposals(false, Some(&r.ip), 20)?;
+        let ssh = store.ssh_events(since, Some(&r.ip), 500)?;
+        r.events = timeline_events(
+            &alerts,
+            &proposals,
+            &ssh,
+            r.ban.as_ref().map(|b| &b.row),
+            since,
+        );
+        let ban_pending = proposals
+            .iter()
+            .any(|p| p.status == "pending" && p.action == "ban");
+        r.status = lane_status(r.ban.is_some() || r.status == "banned", ban_pending);
+        r.hours = store
+            .ip_history(&r.ip, since - since % 3_600)?
+            .into_iter()
+            .map(|h| TimelineHour {
+                hour: h.hour,
+                in_packets: h.in_packets,
+                syn: h.syn,
+                blocked: h.blocked,
+            })
+            .collect();
+    }
+    Ok(())
+}
+
+async fn timeline(State(app): AppState, Query(q): Query<TimelineQuery>) -> ApiResult<Value> {
+    let now = now_unix();
+    let window = match q.window.as_deref() {
+        Some("24h") => 86_400,
+        _ => 7 * 86_400,
+    };
+    let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
+    let mut rows = pick_lanes(&app.engine.lock().unwrap(), limit, drops);
+    fill_lanes(&app.store.lock().unwrap(), &mut rows, now - window).map_err(internal)?;
+    Ok(Json(
+        json!({ "since": now - window, "now": now, "rows": rows }),
+    ))
+}
+
 async fn conn_events(
     State(app): AppState,
     Query(q): Query<ListQuery>,
@@ -1273,5 +1458,133 @@ mod tests {
         assert_eq!((v.matched, v.dropped), (42, 0));
         let v = ban_view(&e, row("198.51.100.1"), false);
         assert_eq!((v.matched, v.dropped), (500, 0));
+    }
+
+    #[test]
+    fn timeline_events_keep_the_window_and_only_accepted_logins() {
+        let alert = |ts, kind: &str| AlertRow {
+            id: ts,
+            ip: "203.0.113.7".into(),
+            kind: kind.into(),
+            score: 80,
+            summary: format!("{kind} summary"),
+            location: String::new(),
+            first_ts: ts,
+            last_ts: ts + 60,
+            count: 1,
+        };
+        let ssh = |ts, kind: &str| SshEventRow {
+            ts,
+            kind: kind.into(),
+            user: Some("root".into()),
+            ip: "203.0.113.7".into(),
+            method: Some("password".into()),
+            location: String::new(),
+        };
+        let proposal = ProposalRow {
+            id: 42,
+            created: 300,
+            target: "203.0.113.7".into(),
+            action: "ban".into(),
+            ttl_secs: Some(86_400),
+            reason: String::new(),
+            source: "rules".into(),
+            confidence: 0.9,
+            status: "pending".into(),
+            decided_at: None,
+        };
+        let ban = BanRow {
+            target: "203.0.113.7".into(),
+            created: 400,
+            expires: None,
+            reason: "ssh_bruteforce".into(),
+            source: "manual".into(),
+        };
+        let ev = timeline_events(
+            &[alert(50, "port_scan"), alert(200, "ssh_bruteforce")],
+            &[proposal],
+            &[ssh(250, "failed"), ssh(500, "accepted")],
+            Some(&ban),
+            100,
+        );
+        let kinds: Vec<_> = ev.iter().map(|e| (e.ts, e.kind)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (200, "finding"),
+                (300, "proposal"),
+                (400, "ban"),
+                (500, "login")
+            ]
+        );
+        assert_eq!(ev[0].finding.as_deref(), Some("ssh_bruteforce"));
+        assert_eq!(ev[1].label, "ban proposed (#42, pending)");
+        assert_eq!(ev[3].label, "SSH login accepted as root");
+    }
+
+    #[test]
+    fn timeline_lists_flagged_sources_by_score_with_their_history() {
+        let path =
+            std::env::temp_dir().join(format!("netwatch-timeline-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut store = crate::store::Store::open(&path).unwrap();
+        let mut e = test_engine();
+        let now = 10 * 86_400;
+        for (ip, score) in [("203.0.113.7", 90), ("198.51.100.4", 40), ("192.0.2.1", 0)] {
+            e.state(ip.parse().unwrap(), now).score = score;
+        }
+        e.state("198.51.100.9".parse().unwrap(), now).score = 70;
+        e.state("198.51.100.9".parse().unwrap(), now).allowlisted = true;
+        store
+            .upsert_alert(
+                "203.0.113.7",
+                "ssh_bruteforce",
+                90,
+                "204 failed logins",
+                "",
+                now - 3_600,
+            )
+            .unwrap();
+        store
+            .add_proposal(
+                &crate::store::NewProposal {
+                    target: "198.51.100.4",
+                    action: "ban",
+                    ttl_secs: Some(86_400),
+                    reason: "scan",
+                    source: "rules",
+                    confidence: 0.8,
+                },
+                now - 600,
+            )
+            .unwrap();
+        store
+            .record_hourly(
+                now - now % 3_600 - 3_600,
+                &[crate::store::HourDelta {
+                    ip: "203.0.113.7",
+                    country: "",
+                    location: "",
+                    in_packets: 1_200,
+                    in_bytes: 90_000,
+                    syn: 300,
+                    blocked: 0,
+                    score: 90,
+                }],
+            )
+            .unwrap();
+
+        let mut rows = pick_lanes(&e, 20, true);
+        fill_lanes(&store, &mut rows, now - 86_400).unwrap();
+        let ips: Vec<_> = rows.iter().map(|r| r.ip.as_str()).collect();
+        // Score 0 and allowlisted sources are not threats.
+        assert_eq!(ips, ["203.0.113.7", "198.51.100.4"]);
+        assert_eq!(rows[0].hours.len(), 1);
+        assert_eq!(rows[0].hours[0].in_packets, 1_200);
+        assert_eq!(rows[0].events[0].kind, "finding");
+        assert_eq!(rows[0].status, "watching");
+        assert_eq!(rows[1].status, "ban proposed");
+        assert_eq!(pick_lanes(&e, 1, true).len(), 1);
+        std::fs::remove_file(&path).unwrap();
     }
 }

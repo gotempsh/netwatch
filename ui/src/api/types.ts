@@ -630,3 +630,34 @@ export interface ConnEvent {
   unit: string | null;
   detail: string;
 }
+
+/** GET /api/timeline?window=24h|7d&limit= — one lane per flagged source, highest score first. */
+export interface Timeline {
+  since: number;
+  now: number;
+  rows: TimelineRow[];
+}
+
+export interface TimelineRow {
+  ip: string;
+  geo: GeoInfo;
+  score: number;
+  findings: Finding[];
+  allowlisted: boolean;
+  status: "banned" | "ban proposed" | "watching";
+  ssh_accepted: number;
+  first_seen: number;
+  last_seen: number;
+  hours: { hour: number; in_packets: number; syn: number; blocked: number }[];
+  /** Oldest first, inside the window. */
+  events: TimelineEvent[];
+  ban: Ban | null;
+}
+
+export interface TimelineEvent {
+  ts: number;
+  kind: "finding" | "proposal" | "ban" | "login";
+  label: string;
+  /** The finding's kind (ssh_bruteforce, port_scan, ...), for findings. */
+  finding?: string;
+}

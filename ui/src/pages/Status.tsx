@@ -2,13 +2,13 @@
 // consequence, command, evidence), then three questions a self-hoster asks:
 // who is knocking, who does this host talk to, what can the internet reach.
 import { useMemo } from "react";
-import type { ConnEvent, Destinations, Insight, InterfacesInfo, Listener, Overview, Proposal, Source, Summary } from "../api/types";
+import type { ConnEvent, Destinations, Insight, InterfacesInfo, Listener, Overview, Proposal, Source, Summary, Timeline } from "../api/types";
 import { connEventsPath, destinationsPath, useConnectivity, usePoll } from "../api/client";
-import { Command, KindChip, PanelState, RelTime, scoreTone } from "../components/ui";
-import { BandChart, SevIcon, type Sev } from "../components/viz";
+import { Command, PanelState, RelTime } from "../components/ui";
+import { BandChart, Lanes, SevIcon, type Sev } from "../components/viz";
+import { laneFor } from "../components/timeline";
 import { fmtBytes, fmtDuration, fmtInt } from "../lib/format";
 import { useNow } from "../lib/clock";
-import { sourceHref } from "../lib/router";
 import { bansDrop } from "../lib/mode";
 import { deriveIssues, failGroups, tailnetOnly, TRACEPOINT_LOSS, type Issue } from "../lib/status";
 
@@ -101,13 +101,6 @@ function IssueRow({ i }: { i: Issue }) {
   );
 }
 
-function sourceStatus(s: Source, pendingFor: Set<string>, drops: boolean) {
-  if (s.banned) return drops ? "banned" : "banned, counted";
-  if (pendingFor.has(s.ip)) return "ban proposed";
-  if (s.allowlisted) return "allowlisted";
-  return "watching";
-}
-
 export default function Status() {
   const now = useNow();
   const conn = useConnectivity();
@@ -120,6 +113,7 @@ export default function Status() {
   const sum = usePoll<Summary>("/api/summary?window=24h", 30_000);
   const src = usePoll<Source[]>("/api/sources?flagged=1&sort=score&limit=100", 15_000);
   const ifs = usePoll<InterfacesInfo>("/api/interfaces", 60_000);
+  const tl = usePoll<Timeline>("/api/timeline?window=24h&limit=5", 30_000);
 
   const fails = useMemo(() => failGroups(ev.data ?? [], dest.data?.rows ?? []), [ev.data, dest.data]);
   const derived = useMemo(() => (ins.data && props.data ? deriveIssues(ins.data, props.data, fails, now, ov.data?.platform) : null), [ins.data, props.data, fails, now, ov.data?.platform]);
@@ -149,7 +143,6 @@ export default function Status() {
   const drops = bansDrop(o);
   const hostile = src.data ?? [];
   const gotIn = hostile.filter((s) => s.ssh.accepted > 0);
-  const pendingFor = new Set((props.data ?? []).filter((p) => p.action === "ban").map((p) => p.target));
   const exposed = (lis.data ?? []).filter((l) => l.exposed && l.role !== "client");
   const probes = (l: Listener) => sum.data?.ports.find((p) => p.port === l.port && p.proto === l.proto)?.sources ?? 0;
   const failing = new Set(fails.map((g) => g.remote));
@@ -187,23 +180,10 @@ export default function Status() {
           <p className="pillar-verdict">
             <b>{fmtInt(o.counts.flagged)}</b> flagged sources · <b>{o.counts.bans_active}</b> bans · <b className={gotIn.length ? "hot" : ""}>{gotIn.length}</b> logged in
           </p>
-          {src.data && hostile.length === 0 && <p className="muted small">No flagged sources right now.</p>}
-          <ul className="mini-rows">
-            {hostile.slice(0, 5).map((s) => (
-              <li key={s.ip} className={s.ssh.accepted ? "mini-row-bad" : ""}>
-                <span className={`score-dot tone-${scoreTone(s.score)}`}>{s.score}</span>
-                <span className="mini-row-main">
-                  <a className="mono" href={sourceHref(s.ip)}>
-                    {s.ip}
-                  </a>{" "}
-                  {s.findings[0] && <KindChip kind={s.findings[0].kind} score={s.findings[0].score} title={s.findings[0].summary} />}
-                </span>
-                <span className={`mini-row-val ${s.ssh.accepted ? "hot" : "muted"}`}>{s.ssh.accepted ? `${s.ssh.accepted} logins` : sourceStatus(s, pendingFor, drops)}</span>
-              </li>
-            ))}
-          </ul>
-          <a className="more-link" href="#/threats/sources">
-            All sources
+          {tl.data && tl.data.rows.length === 0 && <p className="muted small">No flagged sources in the last 24 hours.</p>}
+          {tl.data && tl.data.rows.length > 0 && <Lanes lanes={tl.data.rows.map((r) => laneFor(r, drops, { compact: true }))} from={tl.data.since} to={tl.data.now} compact labelW={150} />}
+          <a className="more-link" href="#/threats">
+            Attack timeline
           </a>
         </div>
         <div className="pillar">

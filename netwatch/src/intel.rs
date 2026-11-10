@@ -1018,6 +1018,41 @@ mod tests {
     }
 
     #[test]
+    fn slow_wireguard_interfaces_share_one_timeout() {
+        use super::{Answer, wireguard_uapi};
+        use std::io::{BufRead as _, Write as _};
+        // Each answers in 200 ms, inside a 450 ms budget on its own but not all three together.
+        let slow = |mut c: std::os::unix::net::UnixStream| {
+            let mut line = String::new();
+            std::io::BufReader::new(c.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let _ = c.write_all(b"endpoint=203.0.113.9:51820\nerrno=0\n\n");
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        };
+        let first = fake_daemon("utun3", slow);
+        let dir = first.parent().unwrap();
+        for name in ["utun4.sock", "utun5.sock"] {
+            let l = std::os::unix::net::UnixListener::bind(dir.join(name)).unwrap();
+            std::thread::spawn(move || {
+                for c in l.incoming().flatten() {
+                    std::thread::spawn(move || slow(c));
+                }
+            });
+        }
+        let start = std::time::Instant::now();
+        let a = wireguard_uapi(dir, std::time::Duration::from_millis(450));
+        assert!(matches!(a, Some(Answer::TimedOut)));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(580),
+            "{:?}",
+            start.elapsed()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn a_hanging_command_is_cut_off() {
         let start = std::time::Instant::now();
         let r = run_with_timeout(sh("sleep 30"), std::time::Duration::from_millis(200));

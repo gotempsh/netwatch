@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(ROOT, "dist");
 const PORT = Number(process.env.PORT ?? 4321);
-const TYPES = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".md": "text/plain", ".txt": "text/plain", ".sh": "text/plain" };
+const TYPES = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".md": "text/plain", ".txt": "text/plain", ".sh": "text/plain" };
 
 const build = () => spawnSync(process.execPath, [path.join(ROOT, "build.mjs")], { stdio: "inherit", env: { ...process.env, BASE: "/" } });
 build();

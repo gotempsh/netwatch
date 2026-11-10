@@ -103,6 +103,8 @@ function render(md) {
         return `<h${depth} id="${id}"><a class="anchor" href="#${id}">${html}</a></h${depth}>\n`;
       },
       code({ text, lang }) {
+        // Drawn in the browser by assets/app.js; the source shows until then.
+        if (lang === "mermaid") return `<figure class="diagram"><pre class="mermaid">${esc(text)}</pre></figure>\n`;
         const language = { sh: "shell", bash: "shell", "": "text" }[lang ?? ""] ?? lang;
         const html = highlighter.codeToHtml(text, {
           lang: highlighter.getLoadedLanguages().includes(language) ? language : "text",
@@ -253,6 +255,13 @@ fs.mkdirSync(path.join(OUT, "fonts"), { recursive: true });
 fs.cpSync(path.join(ROOT, "public"), OUT, { recursive: true });
 fs.copyFileSync(path.join(ROOT, "assets/style.css"), path.join(OUT, "style.css"));
 fs.copyFileSync(path.join(ROOT, "assets/app.js"), path.join(OUT, "app.js"));
+// Mermaid, self-hosted. The browser fetches only the chunks a diagram needs.
+const mermaid = path.join(ROOT, "node_modules/mermaid/dist");
+fs.cpSync(path.join(mermaid, "mermaid.esm.min.mjs"), path.join(OUT, "mermaid/mermaid.esm.min.mjs"));
+fs.cpSync(path.join(mermaid, "chunks/mermaid.esm.min"), path.join(OUT, "mermaid/chunks/mermaid.esm.min"), {
+  recursive: true,
+  filter: (src) => !src.endsWith(".map"),
+});
 // The one-line installer: curl -fsSL <site>/install.sh | sh
 fs.copyFileSync(path.join(ROOT, "../scripts/get.sh"), path.join(OUT, "install.sh"));
 const fonts = path.join(ROOT, "node_modules/geist/dist/fonts");

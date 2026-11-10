@@ -26,23 +26,28 @@ That installs a systemd service (a launchd daemon on macOS) in **observe** mode:
 
 ## How it works
 
-```text
-                     ┌───────────────── kernel ─────────────────┐
- eno1 ──────packets──▶ XDP: per-source + per-port counters,      │──▶ PASS (always, unless banned)
-                     │      allow/block LPM tries                │
- eno1, tailscale0, ──▶ TC ingress/egress: flow table, first      │──▶ next (never drops)
- docker0, br-*       │      payload per direction, DNS           │
- TCP stack ──────────▶ tracepoints: state changes (pid, comm),   │
-                     │      retransmits, resets                  │
-                     └────────┬─────────────────────▲────────────┘
-                   maps / ring buffers               │ block / allow
-                     ┌────────▼─────────────────────┴────────────┐
- journald (ssh) ─────▶ netwatch daemon: flows + owners (/proc,    │◀── sudo netwatch ban/approve/…
- threat feeds  ──────▶ Docker), findings, scoring, policy,        │    (root-only Unix socket)
- mmdb geo      ──────▶ proposals, SQLite history, optional LLM    │
-                     └────────┬──────────────────────────────────┘
-                              ▼
-                http://127.0.0.1:9180  (GET-only API + embedded web UI)
+```mermaid
+flowchart TB
+  wan(["eno1: incoming packets"]) --> xdp
+  ifaces(["eno1, tailscale0, docker0, br-*"]) --> tc
+  stack(["TCP stack"]) --> tp
+
+  subgraph kernel ["Kernel (eBPF)"]
+    xdp["<b>XDP</b><br/>per-source and per-port counters<br/>allow and block LPM tries<br/>drops only banned sources"]
+    tc["<b>TC ingress and egress</b><br/>flow table, first payload<br/>per direction, DNS<br/>never drops"]
+    tp["<b>Tracepoints</b><br/>TCP state changes with pid and comm<br/>retransmits, resets"]
+  end
+
+  kernel -- "maps and ring buffers" --> daemon
+  daemon -- "block and allow" --> xdp
+
+  journald(["journald: SSH logins"]) --> daemon
+  feeds(["threat feeds"]) --> daemon
+  geo(["mmdb geo databases"]) --> daemon
+  cli(["sudo netwatch ban, approve, …<br/>root-only Unix socket"]) --> daemon
+
+  daemon["<b>netwatch daemon</b><br/>flows and their owners (/proc, Docker)<br/>findings, scoring, policy, proposals<br/>SQLite history, optional LLM"]
+  daemon --> api(["http://127.0.0.1:9180<br/>GET-only API and embedded web UI"])
 ```
 
 The daemon is one Rust binary with the eBPF programs and the web UI embedded. State lives in a single SQLite file. On macOS the same daemon captures from `/dev/bpf` and bans with pf instead.

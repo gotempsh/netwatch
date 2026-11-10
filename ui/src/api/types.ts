@@ -118,7 +118,10 @@ export interface Ban {
   expires: number | null; // null = permanent
   reason: string;
   source: "manual" | "auto" | "policy" | "llm";
-  dropped: number; // packets dropped since daemon start
+  /** Packets from the target that hit the ban since daemon start (absent from daemons before 0.1.4). */
+  matched?: number;
+  /** Of those, how many were dropped: all of them, or 0 in a dry run (`drop_banned = false`). */
+  dropped: number;
 }
 
 /** GET /api/proposals?status=pending|all — actions waiting for a human (approve via CLI). */

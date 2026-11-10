@@ -1478,7 +1478,7 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
     if (ip) a = a.filter((x) => x.ip === ip);
     return a.slice(0, limit ?? 200);
   }
-  if (p === "/api/bans") return bans();
+  if (p === "/api/bans") return bans().map((b) => ({ ...b, matched: b.dropped }));
   if (p === "/api/proposals") {
     const all = proposals();
     return q.get("status") === "all" ? all : all.filter((x) => x.status === "pending");

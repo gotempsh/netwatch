@@ -4,6 +4,7 @@ import { usePoll } from "../api/client";
 import { TimeChart, type ChartSeries } from "../components/charts";
 import { Sparkline, StatTile } from "../components/charts";
 import { IfKindBadge, InsightList, ProposalList } from "../components/domain";
+import { bansDrop, modeChip } from "../lib/mode";
 import { Badge, Card, Flag, IpLink, PanelState, RelTime, LevelTag } from "../components/ui";
 import { useNow } from "../lib/clock";
 import { ccFromLocation, fmtAbsolute, fmtBits, fmtClockSec, fmtCompact, fmtDuration, fmtInt, fmtRate, fmtTcpFlags, pct } from "../lib/format";
@@ -40,8 +41,8 @@ function StatusHeader({ o }: { o: OverviewData }) {
       <HeaderFact label={mac ? "Capture" : "XDP attach"} title={ATTACH_TITLE[o.attach_mode]}>
         <Badge tone={o.attach_mode === "driver" || o.attach_mode === "capture+pf" ? "good" : "warning"}>{o.attach_mode}</Badge>
       </HeaderFact>
-      <HeaderFact label="Mode" title={o.mode === "observe" ? "Observe: detections and proposals only" : "Enforce: bans are applied"}>
-        <Badge tone={o.mode === "enforce" ? "critical" : "accent"}>{o.mode}</Badge>
+      <HeaderFact label="Mode" title={modeChip(o).title}>
+        <Badge tone={o.mode === "enforce" ? "critical" : "accent"}>{modeChip(o).label}</Badge>
       </HeaderFact>
       <HeaderFact label="Drop banned" title={`Whether ${mac ? "pf" : "XDP"} drops packets from banned sources`}>
         <Badge tone={o.drop_banned ? "good" : "muted"}>{o.drop_banned ? "yes" : "no"}</Badge>
@@ -213,6 +214,8 @@ export default function Overview() {
   const ins = usePoll<Insight[]>("/api/insights", 15_000);
   const props = usePoll<Proposal[]>("/api/proposals?status=pending", 10_000);
   const o = ov.data;
+  // A proposal an insight already carries (its approve command is the insight's action) shows once, there.
+  const otherProps = (props.data ?? []).filter((p) => !ins.data?.some((i) => i.action === p.approve_cmd));
 
   const s = o?.series ?? [];
   const x = useMemo(() => s.map((p) => p.ts), [s]);
@@ -254,8 +257,7 @@ export default function Overview() {
         <StatTile
           label="Dropped/s"
           value={fmtCompact(o.rates.dropped_pps)}
-          // Bans drop in observe mode too; only drop_banned = false (or macOS without pf) counts them instead.
-          context={o.drop_banned && o.attach_mode !== "capture" ? `${fmtCompact(o.totals.dropped)} since start` : "bans counted, not dropped"}
+          context={bansDrop(o) ? `${fmtCompact(o.totals.dropped)} since start` : "bans counted, not dropped"}
           trend={tail("dropped_pps")}
         />
         <StatTile label="Active sources (10m)" value={fmtCompact(c.sources_active_10m)} context={`${fmtCompact(c.sources_tracked)} tracked`} href="#/sources?sort=last_seen" />
@@ -281,7 +283,7 @@ export default function Overview() {
             {ins.data && ins.data.length > 0 && <InsightList insights={ins.data} />}
           </Card>
           <Card
-            title={`Pending proposals${props.data?.length ? ` (${props.data.length})` : ""}`}
+            title={otherProps.length < (props.data?.length ?? 0) ? `Other pending proposals${otherProps.length ? ` (${otherProps.length})` : ""}` : `Pending proposals${otherProps.length ? ` (${otherProps.length})` : ""}`}
             sub="Approve on the server with the command shown"
             actions={
               <a href="#/bans" className="small">
@@ -289,8 +291,8 @@ export default function Overview() {
               </a>
             }
           >
-            <PanelState loading={props.loading} error={props.error} empty={!props.data?.length} emptyText="Nothing waiting for a decision." />
-            {props.data && props.data.length > 0 && <ProposalList proposals={props.data} />}
+            <PanelState loading={props.loading} error={props.error} empty={!otherProps.length} emptyText={props.data?.length ? "The only pending proposal is in the insights above." : "Nothing waiting for a decision."} />
+            {otherProps.length > 0 && <ProposalList proposals={otherProps} />}
           </Card>
         </div>
         <div className="stack">

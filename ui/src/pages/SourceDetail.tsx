@@ -207,7 +207,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
                 <KV k="Expires">
                   <BanExpiry ban={d.ban} />
                 </KV>
-                <KV k="Dropped">{fmtInt(d.ban.dropped)} packets</KV>
+                {d.ban.dropped > 0 || !d.ban.matched ? <KV k="Dropped">{fmtInt(d.ban.dropped)} packets</KV> : <KV k="Matched">{fmtInt(d.ban.matched)} packets, not dropped (dry run)</KV>}
                 <KV k="Reason">{d.ban.reason}</KV>
               </dl>
               <div className="hint-row">

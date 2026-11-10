@@ -3,6 +3,7 @@ import type { Overview as OverviewData } from "./api/types";
 import { usePoll, useConnectivity } from "./api/client";
 import { setServerNow } from "./lib/clock";
 import { useRoute } from "./lib/router";
+import { modeChip } from "./lib/mode";
 import { Badge, RelTime } from "./components/ui";
 import Overview from "./pages/Overview";
 import Sources from "./pages/Sources";
@@ -125,8 +126,8 @@ export default function App() {
               <span className="mono muted" title={`netwatch ${ov.data.version}`}>
                 {ov.data.host}
               </span>
-              <Badge tone={ov.data.mode === "enforce" ? "critical" : "accent"} title={ov.data.mode === "enforce" ? "Bans are enforced" : "Observe only: nothing is dropped by policy"}>
-                {ov.data.mode}
+              <Badge tone={ov.data.mode === "enforce" ? "critical" : "accent"} title={modeChip(ov.data).title}>
+                {modeChip(ov.data).label}
               </Badge>
             </>
           )}

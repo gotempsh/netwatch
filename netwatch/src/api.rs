@@ -249,11 +249,20 @@ fn proposal_view(row: ProposalRow) -> ProposalView {
 struct BanView {
     #[serde(flatten)]
     row: BanRow,
+    /// Packets from the target that hit the ban since daemon start.
+    matched: u64,
+    /// Of those, how many were dropped: all of them, or none in a dry run.
     dropped: u64,
 }
 
-fn ban_view(e: &Engine, row: BanRow) -> BanView {
-    let dropped = crate::util::parse_target(&row.target)
+/// Whether the sensor drops banned packets: `drop_banned`, and on macOS only once
+/// pf has loaded the anchor ("capture" alone counts bans without dropping them).
+fn bans_drop(drop_banned: bool, attach_mode: &str) -> bool {
+    drop_banned && attach_mode != "capture"
+}
+
+fn ban_view(e: &Engine, row: BanRow, drops: bool) -> BanView {
+    let matched = crate::util::parse_target(&row.target)
         .map(|net| {
             e.states
                 .values()
@@ -262,7 +271,11 @@ fn ban_view(e: &Engine, row: BanRow) -> BanView {
                 .sum()
         })
         .unwrap_or(0);
-    BanView { row, dropped }
+    BanView {
+        row,
+        matched,
+        dropped: if drops { matched } else { 0 },
+    }
 }
 
 async fn source_detail(
@@ -273,6 +286,7 @@ async fn source_detail(
         .parse()
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid IP".to_string()))?;
     let now = now_unix();
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
     let (mut base, ports, ban) = {
         let e = app.engine.lock().unwrap();
         match e.states.get(&addr) {
@@ -292,7 +306,7 @@ async fn source_detail(
                     })
                     .collect();
                 ports.sort_by_key(|p| (p.port, p.proto));
-                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b));
+                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b, drops));
                 (
                     serde_json::to_value(view(st, now)).map_err(|e| internal(e.into()))?,
                     ports,
@@ -309,7 +323,7 @@ async fn source_detail(
                     "feeds": e.feeds.matches(addr), "feed_hits": e.feeds.hits(addr), "allowlisted": e.is_allowed(addr), "banned": e.ban_for(addr).is_some(),
                     "ssh": {"failed": 0, "invalid_users": 0, "accepted": 0},
                 });
-                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b));
+                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b, drops));
                 (v, Vec::new(), ban)
             }
         }
@@ -398,8 +412,14 @@ async fn alerts(State(app): AppState, Query(q): Query<ListQuery>) -> ApiResult<V
 }
 
 async fn bans(State(app): AppState) -> ApiResult<Vec<BanView>> {
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
     let e = app.engine.lock().unwrap();
-    let mut list: Vec<BanView> = e.bans.values().cloned().map(|b| ban_view(&e, b)).collect();
+    let mut list: Vec<BanView> = e
+        .bans
+        .values()
+        .cloned()
+        .map(|b| ban_view(&e, b, drops))
+        .collect();
     list.sort_by_key(|b| std::cmp::Reverse(b.row.created));
     Ok(Json(list))
 }
@@ -1170,6 +1190,18 @@ async fn conn_events(
 mod tests {
     use super::*;
 
+    fn test_engine() -> Engine {
+        let geo = crate::geo::Geo::open(
+            std::path::Path::new("/nonexistent/city.mmdb"),
+            std::path::Path::new("/nonexistent/asn.mmdb"),
+        );
+        Engine::new(
+            Arc::new(crate::config::Config::default()),
+            geo,
+            (32768, 60999),
+        )
+    }
+
     /// temps reads `/api/bans` (temps-shield's `netwatch` module): it needs `target` and `expires`.
     #[test]
     fn bans_carry_what_temps_reads() {
@@ -1180,7 +1212,12 @@ mod tests {
             reason: "scan".into(),
             source: "auto".into(),
         };
-        let v = serde_json::to_value(BanView { row, dropped: 3 }).unwrap();
+        let v = serde_json::to_value(BanView {
+            row,
+            matched: 3,
+            dropped: 3,
+        })
+        .unwrap();
         assert_eq!(v["target"], "203.0.113.0/24");
         assert_eq!(v["expires"], 86_401);
         let row = BanRow {
@@ -1190,6 +1227,51 @@ mod tests {
             reason: String::new(),
             source: "manual".into(),
         };
-        assert!(serde_json::to_value(BanView { row, dropped: 0 }).unwrap()["expires"].is_null());
+        assert!(
+            serde_json::to_value(BanView {
+                row,
+                matched: 0,
+                dropped: 0,
+            })
+            .unwrap()["expires"]
+                .is_null()
+        );
+    }
+
+    /// A dry run (`drop_banned = false`), or macOS before pf took the anchor, matches
+    /// banned packets without dropping them; the API must not call them dropped.
+    #[test]
+    fn bans_drop_only_when_the_sensor_drops() {
+        assert!(bans_drop(true, "driver"));
+        assert!(bans_drop(true, "skb"));
+        assert!(bans_drop(true, "capture+pf"));
+        assert!(!bans_drop(true, "capture"));
+        assert!(!bans_drop(false, "driver"));
+        assert!(!bans_drop(false, "capture+pf"));
+    }
+
+    #[test]
+    fn ban_view_counts_matched_and_dropped_apart() {
+        let mut e = test_engine();
+        for (ip, blocked) in [
+            ("203.0.113.7", 40),
+            ("203.0.113.9", 2),
+            ("198.51.100.1", 500),
+        ] {
+            e.state(ip.parse().unwrap(), 1).total.blocked = blocked;
+        }
+        let row = |target: &str| BanRow {
+            target: target.into(),
+            created: 1,
+            expires: None,
+            reason: String::new(),
+            source: "manual".into(),
+        };
+        let v = ban_view(&e, row("203.0.113.0/24"), true);
+        assert_eq!((v.matched, v.dropped), (42, 42));
+        let v = ban_view(&e, row("203.0.113.0/24"), false);
+        assert_eq!((v.matched, v.dropped), (42, 0));
+        let v = ban_view(&e, row("198.51.100.1"), false);
+        assert_eq!((v.matched, v.dropped), (500, 0));
     }
 }

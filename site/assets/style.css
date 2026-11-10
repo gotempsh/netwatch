@@ -450,6 +450,29 @@ a > code {
   white-space: normal;
 }
 
+.diagram {
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow-x: auto;
+}
+.diagram pre.mermaid {
+  margin: 0;
+  font: 12px/1.5 var(--mono);
+  color: var(--fg-subtle);
+  text-align: center;
+}
+.diagram pre.mermaid[data-processed] {
+  font-family: var(--font);
+}
+.diagram svg {
+  display: block;
+  margin: 0 auto;
+  /* Phones scroll the diagram sideways instead of shrinking its text. */
+  min-width: 620px;
+}
 .code {
   position: relative;
   margin: 0 0 20px;

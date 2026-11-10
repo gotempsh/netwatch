@@ -1,4 +1,4 @@
-// Theme toggle, mobile menu, copy buttons and the "Copy page" menu.
+// Theme toggle, mobile menu, copy buttons, the "Copy page" menu and diagrams.
 
 const root = document.documentElement;
 
@@ -91,4 +91,49 @@ if (links.length) {
   };
   addEventListener("scroll", update, { passive: true });
   update();
+}
+
+// ---- Diagrams: drawn with the site's colours, again when the theme changes ----
+
+const diagrams = [...document.querySelectorAll("pre.mermaid")];
+if (diagrams.length) {
+  const src = new URL("mermaid/mermaid.esm.min.mjs", document.currentScript.src).href;
+  for (const d of diagrams) d.dataset.source = d.textContent;
+  let mermaid;
+  const draw = async () => {
+    mermaid ??= (await import(src)).default;
+    const css = getComputedStyle(root);
+    const v = (name) => css.getPropertyValue(name).trim();
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      look: "classic",
+      flowchart: { wrappingWidth: 320 },
+      fontFamily: v("--font"),
+      themeVariables: {
+        darkMode: root.classList.contains("dark"),
+        background: v("--bg"),
+        primaryColor: v("--bg-muted"),
+        primaryTextColor: v("--fg"),
+        primaryBorderColor: v("--border-strong"),
+        lineColor: v("--fg-subtle"),
+        textColor: v("--fg-muted"),
+        titleColor: v("--fg-muted"),
+        clusterBkg: v("--bg-subtle"),
+        clusterBorder: v("--border"),
+        edgeLabelBackground: v("--bg"),
+        fontSize: "14px",
+      },
+    });
+    for (const d of diagrams) {
+      d.removeAttribute("data-processed");
+      d.textContent = d.dataset.source;
+    }
+    await mermaid.run({ nodes: diagrams });
+  };
+  let queue = draw();
+  new MutationObserver(() => (queue = queue.then(draw, draw))).observe(root, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
 }

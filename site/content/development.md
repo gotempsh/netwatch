@@ -43,7 +43,7 @@ npm --prefix ui run dev:mock     # against built-in demo data, no daemon needed
 npm --prefix ui run dev          # against a local daemon on :9180
 ```
 
-The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show, and what the [live demo](/demo/) runs on.
+The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show, and what the [live demo](/demo/) runs on. Its addresses come from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 and 2001:db8::/32), so no real host appears in a screenshot; keep new demo data in them too.
 
 ## Docs
 
@@ -56,6 +56,10 @@ npm --prefix ui run build:demo   # the live demo, into site/dist/demo/
 The demo is the UI built with `--mode demo`: mock data, no API calls, and a banner on every page saying so. The UI uses hash routes (`demo/#/threats/sources`), so deep links and refreshes work on GitHub Pages with no fallback page. Build it after the site: the site build empties `site/dist/`, and so does each rebuild of `run dev`.
 
 Pages are Markdown in `site/content/`. Each one is also published as `<page>.md`, and `llms.txt` and `llms-full.txt` list them for agents.
+
+## Contributing
+
+[CONTRIBUTING.md](https://github.com/gotempsh/netwatch/blob/main/CONTRIBUTING.md) lists the checks CI runs, the commit format and how to file a bug. Report security problems as [SECURITY.md](https://github.com/gotempsh/netwatch/blob/main/SECURITY.md) describes, not in a public issue.
 
 ## License
 

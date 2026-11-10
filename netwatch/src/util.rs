@@ -211,8 +211,32 @@ pub fn parse_duration(s: &str) -> anyhow::Result<i64> {
     Ok(d.as_secs() as i64)
 }
 
+/// `7d`, `1d 30m`, `1m 14s`: exact, written the way `--ttl` takes them.
 pub fn fmt_secs(secs: i64) -> String {
-    humantime::format_duration(std::time::Duration::from_secs(secs.max(0) as u64)).to_string()
+    units(secs, 4)
+}
+
+/// The two largest units (`6d 23h`), for uptimes and countdowns where the rest is noise.
+pub fn fmt_approx(secs: i64) -> String {
+    units(secs, 2)
+}
+
+fn units(secs: i64, max: usize) -> String {
+    let s = secs.max(0);
+    let units = [
+        (s / 86400, "d"),
+        (s / 3600 % 24, "h"),
+        (s / 60 % 60, "m"),
+        (s % 60, "s"),
+    ];
+    let first = units.iter().position(|(n, _)| *n > 0).unwrap_or(3);
+    units[first..]
+        .iter()
+        .take(max)
+        .filter(|(n, _)| *n > 0 || first == 3)
+        .map(|(n, u)| format!("{n}{u}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn fmt_bytes(b: f64) -> String {
@@ -239,4 +263,25 @@ pub fn flag(cc: &str) -> String {
         .chars()
         .filter_map(|c| char::from_u32(0x1F1E6 + (c as u32 - 'A' as u32)))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn durations_read_like_ttls() {
+        assert_eq!(fmt_secs(7 * 86400), "7d");
+        assert_eq!(fmt_secs(86400 + 1800), "1d 30m");
+        assert_eq!(fmt_secs(7245), "2h 45s");
+        assert_eq!(fmt_secs(74), "1m 14s");
+        assert_eq!(fmt_secs(0), "0s");
+        assert_eq!(fmt_secs(-5), "0s");
+        assert_eq!(fmt_approx(7 * 86400 - 16), "6d 23h");
+        assert_eq!(fmt_approx(3601), "1h");
+        // What it prints, `--ttl` takes back.
+        for t in [7 * 86400, 86400 + 1800, 7245, 90061] {
+            assert_eq!(parse_duration(&fmt_secs(t)).unwrap(), t);
+        }
+    }
 }

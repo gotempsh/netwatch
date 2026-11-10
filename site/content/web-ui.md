@@ -52,7 +52,7 @@ The evidence is folded underneath: its connections, the ports touched, SSH attem
 
 ![Source detail](/screenshots/source-detail.png)
 
-Terminal: `netwatch ip 218.92.0.112`.
+Terminal: `netwatch ip 192.0.2.12`.
 
 ### Alerts
 

@@ -73,7 +73,9 @@ systemctl status netwatch
 netwatch status
 ```
 
-XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode otherwise. On some drivers (igb, ixgbe, …) attaching resets the link for about 3 seconds.
+`netwatch status` lists what needs attention first. If it says *Connection tracking is off*, the kernel refused the flow programs; [Connection tracking](/connections#when-the-kernel-refuses-the-programs) says what to do.
+
+XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode (shown as `skb`) otherwise. On some drivers (igb, ixgbe, …) attaching resets the link for about 3 seconds.
 
 ### Verify the download
 
@@ -88,6 +90,25 @@ gh attestation verify netwatch-linux-x86_64.tar.gz -R gotempsh/netwatch
 ### GeoIP databases
 
 To use MaxMind GeoLite2 instead of DB-IP, point `geoip_city` and `geoip_asn` in the [configuration](/configuration) at those `.mmdb` files. Changed files are reloaded automatically.
+
+## Uninstalling
+
+On Linux, stop the service and its timers, then remove what the installer wrote:
+
+```shell
+sudo systemctl disable --now netwatch.service netwatch-update.timer netwatch-update-geoip.timer
+sudo rm -f /etc/systemd/system/netwatch*.service /etc/systemd/system/netwatch*.timer
+sudo systemctl daemon-reload
+sudo rm -f /usr/local/bin/netwatch /usr/local/bin/netwatch.previous /usr/local/bin/netwatch-update-geoip
+```
+
+Stopping the service detaches the XDP and TC programs, so traffic is no longer counted or dropped. To also delete the configuration, the database (history, bans, proposals) and the GeoIP databases:
+
+```shell
+sudo rm -rf /etc/netwatch /var/lib/netwatch
+```
+
+If you installed the agent skill with `netwatch skill --install`, remove `~/.claude/skills/netwatch` too (or `netwatch` in the directory you passed with `--dir`). On macOS, `sudo netwatch uninstall` stops and removes the daemon and the binaries, and `--purge` also deletes the configuration, the database and the log; see [macOS](/macos).
 
 ## Docker
 
@@ -106,7 +127,7 @@ The [install script](#install-script) works on macOS too. [macOS](/macos) covers
 
 ## From source
 
-You need a Rust toolchain (stable, plus nightly with `rust-src`), [`bpf-linker`](https://github.com/aya-rs/bpf-linker), and Node 20 or newer to build the UI:
+You need a Rust toolchain (stable, plus nightly with `rust-src`), [`bpf-linker`](https://github.com/aya-rs/bpf-linker), and Node 22.12 or newer (or 20.19 or newer on Node 20) to build the UI:
 
 ```shell
 rustup toolchain install stable

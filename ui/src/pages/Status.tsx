@@ -70,7 +70,7 @@ function Verdict({ issues, o, down, lastOk }: { issues: Issue[]; o: Overview; do
           <p className="verdict-sub">
             {sev === "ok" ? (
               <>
-                {fmtInt(o.counts.flagged)} flagged sources, {o.counts.bans_active} bans {drops ? "dropping their traffic" : "counting (dry run)"}. {o.host} up {fmtDuration(o.now - o.started_at)}, updated <RelTime ts={o.now} />.
+                {fmtInt(o.counts.flagged)} flagged sources, {o.counts.bans_active} active bans {drops ? "dropping their traffic" : "counting (dry run)"}. {o.host} up {fmtDuration(o.now - o.started_at)}, updated <RelTime ts={o.now} />.
               </>
             ) : (
               <>
@@ -199,7 +199,7 @@ export default function Status() {
         <div className="pillar">
           <h2>Who is knocking</h2>
           <p className="pillar-verdict">
-            <b>{fmtInt(o.counts.flagged)}</b> flagged sources · <b>{o.counts.bans_active}</b> bans · <b className={gotIn.length ? "hot" : ""}>{gotIn.length}</b> logged in
+            <b>{fmtInt(o.counts.flagged)}</b> flagged now · <b>{o.counts.bans_active}</b> active bans · <b className={gotIn.length ? "hot" : ""}>{gotIn.length}</b> logged in
           </p>
           {tl.data && tl.data.rows.length === 0 && <p className="muted small">No flagged sources in the last 24 hours.</p>}
           {tl.data && tl.data.rows.length > 0 && <Lanes lanes={tl.data.rows.map((r) => laneFor(r, drops, { compact: true }))} from={tl.data.since} to={tl.data.now} compact labelW={150} />}

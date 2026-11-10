@@ -160,6 +160,24 @@ fn cve_2026_98432_fix(release: &str) -> Option<KernelFix> {
     })
 }
 
+/// Where the daemon logged why the kernel refused the flow programs, and the
+/// command that shows it. A container can't know its own name (Compose calls
+/// it `<project>-netwatch-1`), so there it's said in words.
+fn flow_log() -> (&'static str, Option<&'static str>) {
+    #[cfg(target_os = "linux")]
+    if crate::host::in_container() {
+        return (
+            "The container's log has the kernel's reason (`docker logs <container>`, or `docker compose logs \
+             netwatch`): look for \"flow program\".",
+            None,
+        );
+    }
+    (
+        "The daemon log has the kernel's reason.",
+        Some("journalctl -u netwatch -b | grep 'flow program'"),
+    )
+}
+
 fn add(
     out: &mut Vec<Insight>,
     level: &'static str,
@@ -184,6 +202,7 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
         .unwrap()
         .proposals(true, None, 10_000)?
         .len();
+    let flows_ok = !app.cfg.track_flows || app.kernel.lock().unwrap().flows_ok;
     let e = app.engine.lock().unwrap();
     let cfg = &app.cfg;
     let hour = now - 3600;
@@ -306,8 +325,8 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             ),
             format!(
                 "Linux kernel TCP use-after-free, CVSS 9.8: it fires during the handshake, before any application \
-                 sees the connection. {kernel_note} Until then, set drop_syn_ip_options = true or add the nftables \
-                 rule below. Senders: {}.",
+                 sees the connection. {kernel_note} Until then, set drop_syn_ip_options = true in netwatch.toml \
+                 and restart netwatch, or add the nftables rule below (it needs nft). Senders: {}.",
                 shown.join(", ")
             ),
             Some(NFT_DROP_IPOPT_SYN.into()),
@@ -328,8 +347,8 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             "The kernel may be exposed to CVE-2026-98432".into(),
             format!(
                 "A crafted TCP SYN with IPv4 options can crash or take over an unpatched kernel through any \
-                 listening port. {kernel_note} Until then, set drop_syn_ip_options = true or add the nftables rule \
-                 below."
+                 listening port. {kernel_note} Until then, set drop_syn_ip_options = true in netwatch.toml and \
+                 restart netwatch, or add the nftables rule below (it needs nft)."
             ),
             Some(NFT_DROP_IPOPT_SYN.into()),
         ),
@@ -521,6 +540,20 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             format!("{} probe events were lost", e.global.events_lost),
             "The ring buffer filled up (a burst of new source/port pairs). Counters are still exact.".into(),
             None,
+        );
+    }
+    if !flows_ok {
+        let (log, cmd) = flow_log();
+        add(
+            &mut out,
+            "warn",
+            "Connection tracking is off".into(),
+            format!(
+                "The kernel refused netwatch's flow programs, so Connections, DNS, the names behind remote \
+                 addresses and exploit detection have no data. Per-source counters, findings and bans still work. \
+                 {log} Please report it with the output of uname -r."
+            ),
+            cmd.map(str::to_string),
         );
     }
     if !e.geo.available() {

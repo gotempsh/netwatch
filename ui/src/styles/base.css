@@ -174,7 +174,11 @@ p {
 
 /* ---- shell ---- */
 
+/* The top bar, section tabs and banners span the window, but their contents
+   line up with the page content: 20px from the edge, or centred on the same
+   1640px column as .main on wide screens. */
 .app {
+  --gutter: max(20px, calc((100% - 1640px) / 2));
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -188,7 +192,7 @@ p {
   align-items: center;
   gap: 18px;
   height: 46px;
-  padding: 0 20px;
+  padding: 0 var(--gutter);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -235,13 +239,16 @@ p {
 .subnav {
   display: flex;
   gap: 4px;
-  padding: 0 20px;
+  padding: 0 var(--gutter);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   overflow-x: auto;
   scrollbar-width: none;
 }
 .subnav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 10px 7px;
   font-size: 13px;
   color: var(--text-2);
@@ -261,8 +268,16 @@ p {
   display: flex;
   gap: 4px;
   width: 100%;
-  max-width: 1680px;
-  margin: 0 auto;
+}
+/* Tab icons sit a step quieter than their label and take its colour when active. */
+.nav a .icon,
+.subnav a .icon {
+  flex: none;
+  opacity: 0.75;
+}
+.nav a.active .icon,
+.subnav a.active .icon {
+  opacity: 1;
 }
 .nav-count {
   min-width: 18px;
@@ -295,7 +310,7 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 20px;
+  padding: 7px var(--gutter);
   background: color-mix(in srgb, var(--warning) 14%, var(--surface));
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
   font-size: 12.5px;
@@ -418,14 +433,30 @@ p {
     order: 3;
     flex: 1 0 100%;
     justify-content: space-between;
-    height: 40px;
     margin: 0 -12px;
     padding: 0 4px;
     border-top: 1px solid var(--border);
   }
+  /* Icon over label, as in a phone tab bar, so the five still fit 390 px. */
+  .nav {
+    height: 50px;
+  }
   .nav a {
-    padding: 0 8px;
-    font-size: 13px;
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+  .nav a .nav-count {
+    position: absolute;
+    top: 4px;
+    left: calc(50% + 6px);
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 15px;
   }
   .subnav {
     padding: 0 6px;

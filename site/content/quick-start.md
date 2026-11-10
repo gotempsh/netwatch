@@ -44,7 +44,7 @@ netwatch status
 
 ```shell
 netwatch sources --flagged       # the same list in the terminal
-netwatch ip 218.92.0.112         # everything about one address
+netwatch ip 192.0.2.12           # everything about one address
 ```
 
 ## 4. Approve a ban
@@ -61,6 +61,13 @@ sudo netwatch approve 7          # apply proposal 7
 sudo netwatch reject 8
 sudo netwatch ban 203.0.113.0/24 --ttl 7d --reason "scanner subnet"
 sudo netwatch allow 198.51.100.4 # never ban this address
+```
+
+To lift a ban, by hand or approved, use its target as `netwatch bans` lists it. The source's page in the UI shows the same command:
+
+```shell
+netwatch bans                    # active bans and when they expire
+sudo netwatch unban 203.0.113.0/24
 ```
 
 A ban drops the source's packets in XDP before the kernel's network stack sees them. On macOS it goes into a pf table.

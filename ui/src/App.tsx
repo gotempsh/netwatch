@@ -6,6 +6,7 @@ import { href, navigate, useRoute } from "./lib/router";
 import { modeChip } from "./lib/mode";
 import { REDIRECTS, SECTIONS, sectionOf } from "./lib/sections";
 import { Badge, RelTime } from "./components/ui";
+import { Icon } from "./components/icons";
 import Status from "./pages/Status";
 import Threats from "./pages/Threats";
 import Sources from "./pages/Sources";
@@ -123,6 +124,7 @@ export default function App() {
             const on = s.key === section.key;
             return (
               <a key={s.key} href={`#${s.path}`} className={on ? "active" : ""} aria-current={on ? "page" : undefined}>
+                <Icon name={s.icon} />
                 {s.label}
                 {s.key === "bans" && pending > 0 && (
                   <span className="nav-count" aria-label={`${pending} waiting for approval`} title={`${pending} pending proposals`}>
@@ -156,6 +158,7 @@ export default function App() {
               const on = t.path === p;
               return (
                 <a key={t.path} href={`#${t.path}`} className={on ? "active" : ""} aria-current={on ? "page" : undefined}>
+                  <Icon name={t.icon} size={14} />
                   {t.label}
                 </a>
               );

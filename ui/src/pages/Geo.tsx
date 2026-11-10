@@ -37,7 +37,7 @@ export default function Geo() {
       </div>
       {!s && <PanelState loading={res.loading} error={res.error} />}
       {s && (
-        <div className={dim}>
+        <div className={`stack ${dim}`}>
           <div className="grid-2">
             <Card title="Countries" sub="Bars: distinct sources" flush>
               <div className="scroll-y" style={{ maxHeight: 460 }}>

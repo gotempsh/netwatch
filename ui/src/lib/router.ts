@@ -5,7 +5,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 export interface Route {
   path: string; // e.g. "/sources"
-  parts: string[]; // decoded path segments, e.g. ["sources", "1.2.3.4"]
+  parts: string[]; // decoded path segments, e.g. ["sources", "192.0.2.1"]
   query: URLSearchParams;
 }
 

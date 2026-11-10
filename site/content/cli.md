@@ -83,6 +83,8 @@ Read-only commands query the daemon's API on `127.0.0.1:9180` and need no root. 
 - `--reason <text>`
 - `--force`: allow very large ranges and non-public addresses
 
+TTLs print the way `--ttl` takes them (`7d`, `1d 30m`); countdowns and uptimes keep the two largest units (`in 6d 23h`). Reasons longer than the column end in `…`; `netwatch ip <ip>` shows them in full.
+
 ## Policy and AI
 
 | Command | |
@@ -107,7 +109,7 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 | `netwatch update --auto on\|off` | **root**: install new releases daily, or stop |
 | `netwatch default-config` | print the default configuration |
 
-On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`.
+On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
 
 ## Agent skill
 

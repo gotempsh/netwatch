@@ -83,7 +83,7 @@ export function fmtMs(ms: number | null | undefined): string {
   return ms < 60_000 ? `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s` : fmtDuration(ms / 1000);
 }
 
-/** "1.2.3.4:443" / "[2001:db8::1]:443". */
+/** "192.0.2.1:443" / "[2001:db8::1]:443". */
 export function fmtHostPort(ip: string, port: number | null | undefined): string {
   if (port == null || port === 0) return ip;
   return ip.includes(":") ? `[${ip}]:${port}` : `${ip}:${port}`;

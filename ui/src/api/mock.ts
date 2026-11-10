@@ -117,7 +117,7 @@ interface SourceSeed {
 
 const SEEDS: SourceSeed[] = [
   {
-    ip: "218.92.0.112",
+    ip: "192.0.2.12",
     geo: geo("CN", "China", "Nanjing", 4134, "CHINANET-BACKBONE", 32.06, 118.78),
     ageH: 52,
     lastS: 14,
@@ -134,7 +134,7 @@ const SEEDS: SourceSeed[] = [
     ssh: { failed: 1284, invalid_users: 311, accepted: 0 },
   },
   {
-    ip: "61.177.172.140",
+    ip: "192.0.2.14",
     geo: geo("CN", "China", "Lianyungang", 4134, "CHINANET-BACKBONE", 34.6, 119.22),
     ageH: 6,
     lastS: 42,
@@ -147,7 +147,7 @@ const SEEDS: SourceSeed[] = [
     ssh: { failed: 204, invalid_users: 37, accepted: 0 },
   },
   {
-    ip: "121.36.212.9",
+    ip: "192.0.2.29",
     geo: geo("CN", "China", "Beijing", 55990, "Huawei Cloud Service data center", 39.9, 116.4),
     ageH: 2,
     lastS: 95,
@@ -158,7 +158,7 @@ const SEEDS: SourceSeed[] = [
     findings: [{ kind: "port_scan", score: 74, summary: "SYN scan of 412 distinct ports in 10m" }],
   },
   {
-    ip: "47.92.101.33",
+    ip: "192.0.2.33",
     geo: geo("CN", "China", "Zhangjiakou", 37963, "Hangzhou Alibaba Advertising Co.,Ltd.", 40.8, 114.88),
     ageH: 20,
     lastS: 610,
@@ -169,7 +169,7 @@ const SEEDS: SourceSeed[] = [
     findings: [{ kind: "port_scan", score: 48, summary: "Probed 38 ports incl. redis, docker, elasticsearch" }],
   },
   {
-    ip: "193.163.125.14",
+    ip: "192.0.2.47",
     geo: geo("RU", "Russia", "Saint Petersburg", 49505, "JSC Selectel", 59.94, 30.31),
     ageH: 30,
     lastS: 8,
@@ -185,7 +185,7 @@ const SEEDS: SourceSeed[] = [
     banned: true,
   },
   {
-    ip: "45.141.84.126",
+    ip: "192.0.2.126",
     geo: geo("RU", "Russia", "Moscow", 206728, "Media Land LLC", 55.75, 37.62),
     ageH: 4,
     lastS: 160,
@@ -197,7 +197,7 @@ const SEEDS: SourceSeed[] = [
     feeds: ["spamhaus_drop"],
   },
   {
-    ip: "162.142.125.221",
+    ip: "198.51.100.221",
     geo: geo("US", "United States", "Ann Arbor", 398324, "CENSYS-ARIN-01", 42.28, -83.74),
     ageH: 70,
     lastS: 1_250,
@@ -208,7 +208,7 @@ const SEEDS: SourceSeed[] = [
     findings: [{ kind: "port_scan", score: 35, summary: "Research scanner (Censys), 96 ports over 24h" }],
   },
   {
-    ip: "64.62.197.18",
+    ip: "192.0.2.118",
     geo: geo("US", "United States", "Fremont", 6939, "HURRICANE", 37.55, -121.98),
     ageH: 40,
     lastS: 3_400,
@@ -220,7 +220,7 @@ const SEEDS: SourceSeed[] = [
     udp: 70,
   },
   {
-    ip: "159.89.48.201",
+    ip: "192.0.2.201",
     geo: geo("US", "United States", "Clifton", 14061, "DIGITALOCEAN-ASN", 40.86, -74.16),
     ageH: 1,
     lastS: 22,
@@ -231,7 +231,7 @@ const SEEDS: SourceSeed[] = [
     findings: [{ kind: "http_flood", score: 63, summary: "Sustained 3.7 pps to 80/443 with 50% SYN" }],
   },
   {
-    ip: "3.84.27.190",
+    ip: "198.51.100.190",
     geo: geo("US", "United States", "Ashburn", 14618, "AMAZON-AES", 39.04, -77.49),
     ageH: 12,
     lastS: 300,
@@ -242,7 +242,7 @@ const SEEDS: SourceSeed[] = [
     findings: [],
   },
   {
-    ip: "172.70.214.88",
+    ip: "198.51.100.88",
     geo: geo("US", "United States", "San Francisco", 13335, "CLOUDFLARENET", 37.77, -122.42),
     ageH: 76,
     lastS: 2,
@@ -254,7 +254,7 @@ const SEEDS: SourceSeed[] = [
     allowlisted: true,
   },
   {
-    ip: "162.158.90.41",
+    ip: "198.51.100.41",
     geo: geo("DE", "Germany", "Frankfurt am Main", 13335, "CLOUDFLARENET", 50.11, 8.68),
     ageH: 76,
     lastS: 5,
@@ -363,10 +363,10 @@ function alerts(): Alert[] {
 function bans(): Ban[] {
   const t = now();
   return [
-    { target: "218.92.0.112", created: t - 50 * 3600, expires: t - 50 * 3600 + 7 * 86400, reason: "ssh_bruteforce score 92 (policy rule ssh-bruteforce-week)", source: "policy", dropped: 33_740 },
-    { target: "193.163.125.14", created: t - 26 * 3600, expires: t + 22 * 3600, reason: "port_scan score 88, approved LLM proposal #31", source: "llm", dropped: 15_310 },
-    { target: "45.148.10.0/24", created: t - 9 * 86400, expires: null, reason: "Known malicious hosting range (operator)", source: "manual", dropped: 4_102 },
-    { target: "185.224.128.17", created: t - 3 * 3600, expires: t + 21 * 3600, reason: "threat_feed + port_scan", source: "auto", dropped: 0 },
+    { target: "192.0.2.12", created: t - 50 * 3600, expires: t - 50 * 3600 + 7 * 86400, reason: "ssh_bruteforce score 92 (policy rule ssh-bruteforce-week)", source: "policy", dropped: 33_740 },
+    { target: "192.0.2.47", created: t - 26 * 3600, expires: t + 22 * 3600, reason: "port_scan score 88, approved LLM proposal #31", source: "llm", dropped: 15_310 },
+    { target: "192.0.2.224/27", created: t - 9 * 86400, expires: null, reason: "Known malicious hosting range (operator)", source: "manual", dropped: 4_102 },
+    { target: "192.0.2.217", created: t - 3 * 3600, expires: t + 21 * 3600, reason: "threat_feed + port_scan", source: "auto", dropped: 0 },
   ];
 }
 
@@ -374,12 +374,12 @@ function proposals(): Proposal[] {
   const t = now();
   const p = (o: Omit<Proposal, "approve_cmd">): Proposal => ({ ...o, approve_cmd: `sudo netwatch approve ${o.id}` });
   return [
-    p({ id: 42, created: t - 240, target: "61.177.172.140", action: "ban", ttl_secs: 7 * 86400, reason: "SSH brute force from CHINANET (204 failures/h, 37 invalid users). Same /16 as active ban 218.92.0.112.", source: "llm", confidence: 0.91, status: "pending", decided_at: null }),
-    p({ id: 41, created: t - 900, target: "121.36.212.9", action: "ban", ttl_secs: 86400, reason: "SYN scan of 412 ports in 10m from a cloud provider.", source: "rules", confidence: 0.8, status: "pending", decided_at: null }),
-    p({ id: 40, created: t - 1_800, target: "159.89.48.201", action: "review", ttl_secs: null, reason: "Sustained HTTP SYN load from DigitalOcean; could be a misbehaving client or a flood.", source: "llm", confidence: 0.55, status: "pending", decided_at: null }),
-    p({ id: 39, created: t - 3_600, target: "162.142.125.0/24", action: "allow", ttl_secs: null, reason: "Censys research scanner; low risk, reduce noise.", source: "llm", confidence: 0.62, status: "pending", decided_at: null }),
-    p({ id: 31, created: t - 27 * 3600, target: "193.163.125.14", action: "ban", ttl_secs: 2 * 86400, reason: "Port scan of 1,870 ports, listed by firehol_level1.", source: "llm", confidence: 0.94, status: "applied", decided_at: t - 26 * 3600 }),
-    p({ id: 28, created: t - 40 * 3600, target: "64.62.197.18", action: "ban", ttl_secs: 86400, reason: "UDP probes to amplification ports.", source: "rules", confidence: 0.6, status: "rejected", decided_at: t - 39 * 3600 }),
+    p({ id: 42, created: t - 240, target: "192.0.2.14", action: "ban", ttl_secs: 7 * 86400, reason: "SSH brute force from CHINANET (204 failures/h, 37 invalid users). Same network (AS4134) as active ban 192.0.2.12.", source: "llm", confidence: 0.91, status: "pending", decided_at: null }),
+    p({ id: 41, created: t - 900, target: "192.0.2.29", action: "ban", ttl_secs: 86400, reason: "SYN scan of 412 ports in 10m from a cloud provider.", source: "rules", confidence: 0.8, status: "pending", decided_at: null }),
+    p({ id: 40, created: t - 1_800, target: "192.0.2.201", action: "review", ttl_secs: null, reason: "Sustained HTTP SYN load from DigitalOcean; could be a misbehaving client or a flood.", source: "llm", confidence: 0.55, status: "pending", decided_at: null }),
+    p({ id: 39, created: t - 3_600, target: "198.51.100.208/28", action: "allow", ttl_secs: null, reason: "Censys research scanner; low risk, reduce noise.", source: "llm", confidence: 0.62, status: "pending", decided_at: null }),
+    p({ id: 31, created: t - 27 * 3600, target: "192.0.2.47", action: "ban", ttl_secs: 2 * 86400, reason: "Port scan of 1,870 ports, listed by firehol_level1.", source: "llm", confidence: 0.94, status: "applied", decided_at: t - 26 * 3600 }),
+    p({ id: 28, created: t - 40 * 3600, target: "192.0.2.118", action: "ban", ttl_secs: 86400, reason: "UDP probes to amplification ports.", source: "rules", confidence: 0.6, status: "rejected", decided_at: t - 39 * 3600 }),
     p({ id: 25, created: t - 60 * 3600, target: "203.0.113.50", action: "unban", ttl_secs: null, reason: "Ban expired-equivalent: no traffic for 72h.", source: "llm", confidence: 0.7, status: "expired", decided_at: null }),
     p({ id: 22, created: t - 70 * 3600, target: "198.51.100.23", action: "allow", ttl_secs: null, reason: "Operator's home IP (accepted publickey logins).", source: "llm", confidence: 0.88, status: "approved", decided_at: t - 69 * 3600 }),
   ];
@@ -387,7 +387,7 @@ function proposals(): Proposal[] {
 
 function insights(): Insight[] {
   return [
-    { level: "critical", title: "SSH brute force from CHINANET /16 is ongoing", detail: "61.177.172.140 made 204 failed logins in the last hour. 218.92.0.112 in the same network is already banned. Proposal #42 is pending.", action: "sudo netwatch approve 42" },
+    { level: "critical", title: "SSH brute force from CHINANET (AS4134) is ongoing", detail: "192.0.2.14 made 204 failed logins in the last hour. 192.0.2.12 in the same network is already banned. Proposal #42 is pending.", action: "sudo netwatch approve 42" },
     { level: "warn", title: "4 proposed action(s) waiting for approval", detail: "Rules and the LLM propose; nothing is applied in observe mode until you approve.", action: "netwatch proposals" },
     { level: "warn", title: "Redis and Docker ports are being probed", detail: "6 sources touched 6379/2375 in the last 24h. Neither is listening, but confirm the firewall blocks them on every interface.", action: null },
     { level: "info", title: "Cloudflare traffic allowlisted", detail: "2 Cloudflare edge IPs account for 91% of inbound bytes; they are excluded from scoring.", action: null },
@@ -409,7 +409,7 @@ function sshEvents(): SshEvent[] {
   out.push({ ts: t - 1_900, kind: "accepted", user: "alice", ip: "198.51.100.23", method: "publickey", location: loc(SEEDS[12].geo) });
   out.push({ ts: t - 30_000, kind: "accepted", user: "alice", ip: "198.51.100.23", method: "publickey", location: loc(SEEDS[12].geo) });
   out.push({ ts: t - 640, kind: "tailscale_login", user: "alice@github", ip: "100.88.14.3", method: "tailscale", location: "tailnet" });
-  out.push({ ts: t - 2_600, kind: "failed", user: "root", ip: "45.141.84.126", method: "password", location: loc(SEEDS[5].geo) });
+  out.push({ ts: t - 2_600, kind: "failed", user: "root", ip: "192.0.2.126", method: "password", location: loc(SEEDS[5].geo) });
   return out.sort((a, b) => b.ts - a.ts);
 }
 
@@ -522,7 +522,7 @@ function history(s: SourceSeed): HourPoint[] {
 function portTouches(s: SourceSeed): PortTouch[] {
   const t = now();
   const r = rng(hash(s.ip) + 3);
-  const candidates = s.ssh?.failed || s.ssh?.accepted ? [22] : s.allowlisted ? [443] : s.ip === "159.89.48.201" ? [80, 443, 8080] : Object.keys(SERVICES).map(Number);
+  const candidates = s.ssh?.failed || s.ssh?.accepted ? [22] : s.allowlisted ? [443] : s.ip === "192.0.2.201" ? [80, 443, 8080] : Object.keys(SERVICES).map(Number);
   const n = Math.min(candidates.length, Math.max(1, Math.min(s.ports, 24)));
   const out: PortTouch[] = [];
   for (let i = 0; i < n; i++) {
@@ -663,10 +663,17 @@ function summary(window: string): Summary {
 // ---------------------------------------------------------------------------
 // policy, llm
 
+// The daemon's built-in rules (netwatch/src/policy.rs `defaults()`), in the same format.
+const H = 3600;
 const defaults: PolicyRule[] = [
-  { id: "default-never-ban-allowlist", description: "Never ban allowlisted networks (Cloudflare, tailnet, operator IPs)", action: "never_ban", ttl_secs: null, when: { allowlisted: true }, enabled: true },
-  { id: "default-never-ban-private", description: "Never ban RFC1918 / CGNAT / loopback sources", action: "never_ban", ttl_secs: null, when: { cidr_in: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8"] }, enabled: true },
-  { id: "default-review-high-score", description: "Propose review for any source scoring 60 or more", action: "review", ttl_secs: null, when: { score_gte: 60 }, enabled: true },
+  { id: "default:compromise", description: "A login that follows many failures, or from a never-seen location: a human must look", action: "review", ttl_secs: null, when: { findings_any: ["login_after_failures", "new_login_location"] }, enabled: true },
+  { id: "default:bruteforce", description: "Password guessing against SSH or another auth service", action: "ban", ttl_secs: 7 * 24 * H, when: { findings_any: ["ssh_bruteforce", "brute_force"], min_score: 60 }, enabled: true },
+  { id: "default:flood", description: "SYN / packet / ICMP flood from a single source", action: "ban", ttl_secs: H, when: { findings_any: ["syn_flood", "flood", "icmp_flood"] }, enabled: true },
+  { id: "default:exploit", description: "Sent a known exploit (a named CVE, command injection or path traversal) to a service here", action: "ban", ttl_secs: 7 * 24 * H, when: { findings_any: ["exploit_attempt"] }, enabled: true },
+  { id: "default:listed-prober", description: "Listed on a threat feed and probing this host", action: "ban", ttl_secs: 7 * 24 * H, when: { findings_any: ["port_scan", "closed_probe", "sensitive_probe", "recon_probe", "brute_force", "ssh_bruteforce"], in_feed: true }, enabled: true },
+  { id: "default:scanner", description: "Wide port scan (many ports in 10 minutes)", action: "ban", ttl_secs: 24 * H, when: { findings_any: ["port_scan"], min_score: 75 }, enabled: true },
+  { id: "default:high-score", description: "Anything scoring 85 or more", action: "ban", ttl_secs: 24 * H, when: { min_score: 85 }, enabled: true },
+  { id: "default:review", description: "Suspicious but not conclusive", action: "review", ttl_secs: null, when: { min_score: 40 }, enabled: true },
 ];
 
 function policy(): Policy {
@@ -675,11 +682,11 @@ function policy(): Policy {
   return {
     text,
     rules: [
-      { id: "ssh-bruteforce-week", description: "SSH brute force: ban for 7 days", action: "ban", ttl_secs: 7 * 86400, when: { finding: "ssh_bruteforce", score_gte: 70 }, enabled: true },
-      { id: "scan-plus-feed-day", description: "Port scanners on a threat feed: ban for 1 day", action: "ban", ttl_secs: 86400, when: { finding: "port_scan", feeds_any: true }, enabled: true },
-      { id: "never-ban-cloudflare", description: "Never ban Cloudflare", action: "never_ban", ttl_secs: null, when: { asn_in: [13335] }, enabled: true },
-      { id: "never-ban-home", description: "Never ban the operator's home IP", action: "never_ban", ttl_secs: null, when: { ip_in: ["198.51.100.23"] }, enabled: true },
-      { id: "ignore-research-scanners", description: "Ignore research scanners (Censys, Shodan)", action: "ignore", ttl_secs: null, when: { asn_in: [398324, 10439], as_org_matches: "(?i)censys|shodan" }, enabled: false },
+      { id: "ssh-bruteforce-week", description: "SSH brute force: ban for 7 days", action: "ban", ttl_secs: 7 * 86400, when: { findings_any: ["ssh_bruteforce"] }, enabled: true },
+      { id: "scan-plus-feed-day", description: "Port scanners on a threat feed: ban for 1 day", action: "ban", ttl_secs: 86400, when: { findings_any: ["port_scan"], in_feed: true }, enabled: true },
+      { id: "never-ban-cloudflare", description: "Never ban Cloudflare", action: "never_ban", ttl_secs: null, when: { asns: [13335] }, enabled: true },
+      { id: "never-ban-home", description: "Never ban the operator's home IP", action: "never_ban", ttl_secs: null, when: { cidrs: ["198.51.100.23/32"] }, enabled: true },
+      { id: "ignore-research-scanners", description: "Ignore research scanners (Censys, Shodan)", action: "ignore", ttl_secs: null, when: { asns: [398324, 10439] }, enabled: false },
     ],
     defaults,
     compiled_at: now() - 3 * 86400,
@@ -701,7 +708,7 @@ function llm(): LlmInfo {
       completion_tokens: Math.round(300 + r() * 700),
       summary:
         i === 0
-          ? "SSH brute force from 61.177.172.140 (CHINANET); proposed 7d ban. Huawei Cloud SYN scan; proposed 1d ban."
+          ? "SSH brute force from 192.0.2.14 (CHINANET); proposed 7d ban. Huawei Cloud SYN scan; proposed 1d ban."
           : i === 13
             ? "Compiled policy into 5 rules (2 ban, 2 never_ban, 1 ignore)."
             : ["No new threats beyond existing bans.", "Censys scanner activity; suggested allowlist.", "DigitalOcean HTTP load flagged for review.", "Quiet period; nothing to propose."][i % 4],
@@ -727,39 +734,41 @@ interface Rem {
   name?: string;
 }
 const REMOTES: Record<string, Rem> = {
-  "172.70.214.88": { cc: "US", asn: 13335, org: "CLOUDFLARENET" },
-  "162.158.90.41": { cc: "DE", asn: 13335, org: "CLOUDFLARENET" },
+  "198.51.100.88": { cc: "US", asn: 13335, org: "CLOUDFLARENET" },
+  "198.51.100.41": { cc: "DE", asn: 13335, org: "CLOUDFLARENET" },
   "198.51.100.23": { cc: "ES", asn: 3352, org: "TELEFONICA_DE_ESPANA" },
-  "218.92.0.112": { cc: "CN", asn: 4134, org: "CHINANET-BACKBONE" },
-  "61.177.172.140": { cc: "CN", asn: 4134, org: "CHINANET-BACKBONE" },
-  "121.36.212.9": { cc: "CN", asn: 55990, org: "Huawei Cloud Service data center" },
-  "47.92.101.33": { cc: "CN", asn: 37963, org: "Hangzhou Alibaba Advertising Co.,Ltd." },
-  "159.89.48.201": { cc: "US", asn: 14061, org: "DIGITALOCEAN-ASN" },
-  "193.163.125.14": { cc: "RU", asn: 49505, org: "JSC Selectel" },
-  "140.82.121.4": { cc: "US", asn: 36459, org: "GITHUB", name: "github.com" },
-  "104.16.27.34": { cc: "US", asn: 13335, org: "CLOUDFLARENET", name: "registry.npmjs.org" },
-  "54.236.113.205": { cc: "US", asn: 14618, org: "AMAZON-AES", name: "registry-1.docker.io" },
-  "9.9.9.9": { cc: "CH", asn: 19281, org: "Quad9" },
-  "162.159.200.1": { cc: "US", asn: 13335, org: "CLOUDFLARENET", name: "time.cloudflare.com" },
-  "149.137.128.10": { cc: "NL", asn: 40401, org: "BACKBLAZE", name: "s3.eu-central-003.backblazeb2.com" },
-  "3.120.10.20": { cc: "DE", asn: 16509, org: "AMAZON-02", name: "derp4.tailscale.com" },
-  "95.217.10.44": { cc: "FI", asn: 24940, org: "Hetzner Online GmbH", name: "db.backup.example.com" },
-  "45.33.32.156": { cc: "US", asn: 63949, org: "Akamai Connected Cloud", name: "legacy-api.example.com" },
-  "91.189.91.83": { cc: "GB", asn: 41231, org: "Canonical Group Limited", name: "archive.ubuntu.com" },
-  "34.117.59.81": { cc: "US", asn: 396982, org: "GOOGLE-CLOUD-PLATFORM", name: "ingest.temps.sh" },
-  "2a00:1450:4003:80e::200e": { cc: "IE", asn: 15169, org: "GOOGLE", name: "www.google.com" },
+  "192.0.2.12": { cc: "CN", asn: 4134, org: "CHINANET-BACKBONE" },
+  "192.0.2.14": { cc: "CN", asn: 4134, org: "CHINANET-BACKBONE" },
+  "192.0.2.29": { cc: "CN", asn: 55990, org: "Huawei Cloud Service data center" },
+  "192.0.2.33": { cc: "CN", asn: 37963, org: "Hangzhou Alibaba Advertising Co.,Ltd." },
+  "192.0.2.201": { cc: "US", asn: 14061, org: "DIGITALOCEAN-ASN" },
+  "192.0.2.47": { cc: "RU", asn: 49505, org: "JSC Selectel" },
+  "203.0.113.140": { cc: "US", asn: 36459, org: "GITHUB", name: "github.com" },
+  "203.0.113.104": { cc: "US", asn: 13335, org: "CLOUDFLARENET", name: "registry.npmjs.org" },
+  "203.0.113.205": { cc: "US", asn: 14618, org: "AMAZON-AES", name: "registry-1.docker.io" },
+  "198.51.100.53": { cc: "CH", asn: 19281, org: "Quad9" },
+  "203.0.113.123": { cc: "US", asn: 13335, org: "CLOUDFLARENET", name: "time.cloudflare.com" },
+  "203.0.113.149": { cc: "NL", asn: 40401, org: "BACKBLAZE", name: "s3.eu-central-003.backblazeb2.com" },
+  "203.0.113.20": { cc: "DE", asn: 16509, org: "AMAZON-02", name: "derp4.tailscale.com" },
+  "198.51.100.44": { cc: "FI", asn: 24940, org: "Hetzner Online GmbH", name: "db.backup.example.com" },
+  "198.51.100.156": { cc: "US", asn: 63949, org: "Akamai Connected Cloud", name: "legacy-api.example.com" },
+  "203.0.113.91": { cc: "GB", asn: 41231, org: "Canonical Group Limited", name: "archive.ubuntu.com" },
+  "203.0.113.81": { cc: "US", asn: 396982, org: "GOOGLE-CLOUD-PLATFORM", name: "ingest.temps.sh" },
+  "2001:db8:4860::200e": { cc: "IE", asn: 15169, org: "GOOGLE", name: "www.google.com" },
   "100.64.0.7": { cc: null, asn: null, org: null, name: "nas.tail1234.ts.net" },
   "100.88.14.3": { cc: null, asn: null, org: null, name: "laptop.tail1234.ts.net" },
 };
 
+// The demo's internet is the documentation ranges (192.0.2.0/24, 198.51.100.0/24,
+// 203.0.113.0/24, 2001:db8::/32), so only this host's own addresses in them are local.
 function isPublicIp(ip: string): boolean {
-  if (ip.includes(":")) return !/^(::1$|fe80:|fc|fd|2001:db8:)/i.test(ip);
+  if (ip === HOST4 || ip === HOST6) return false;
+  if (ip.includes(":")) return !/^(::1$|fe80:|fc|fd)/i.test(ip);
   const [a, b] = ip.split(".").map(Number);
   if (a === 10 || a === 127 || a === 0) return false;
   if (a === 172 && b >= 16 && b < 32) return false;
   if (a === 192 && b === 168) return false;
   if (a === 100 && b >= 64 && b < 128) return false;
-  if ((a === 203 && b === 0) || (a === 198 && b === 51)) return false; // documentation ranges: this host
   return true;
 }
 
@@ -875,33 +884,33 @@ const UA_CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 const SSH_SERVER = "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5";
 
 const ACTIVE_SEEDS: FlowSeed[] = [
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "172.70.214.88", rport: 51234, dir: "in", age: 412, bin: 1_840_000, bout: 42_300_000, rin: 9_000, rout: 310_000, owner: O.caddy, app: { proto: "tls", sni: "app.example.com", alpn: "h2" } },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "162.158.90.41", rport: 40122, dir: "in", age: 1_210, bin: 920_000, bout: 18_700_000, rin: 4_100, rout: 120_000, owner: O.caddy, app: { proto: "tls", sni: "grafana.example.com", alpn: "h2" } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "198.51.100.88", rport: 51234, dir: "in", age: 412, bin: 1_840_000, bout: 42_300_000, rin: 9_000, rout: 310_000, owner: O.caddy, app: { proto: "tls", sni: "app.example.com", alpn: "h2" } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "198.51.100.41", rport: 40122, dir: "in", age: 1_210, bin: 920_000, bout: 18_700_000, rin: 4_100, rout: 120_000, owner: O.caddy, app: { proto: "tls", sni: "grafana.example.com", alpn: "h2" } },
   { iface: "eno1", proto: "tcp", local: HOST4, lport: 22, remote: "198.51.100.23", rport: 50522, dir: "in", age: 1_900, bin: 310_000, bout: 2_400_000, rin: 120, rout: 900, owner: O.sshd, connect_ms: 38.2, app: { proto: "ssh", ssh_client: "SSH-2.0-OpenSSH_9.7", ssh_server: SSH_SERVER } },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 22, remote: "218.92.0.112", rport: 44120, dir: "in", age: 9, bin: 2_900, bout: 3_400, rin: 300, rout: 340, owner: O.sshd, app: { proto: "ssh", ssh_client: "SSH-2.0-libssh_0.9.6", ssh_server: SSH_SERVER } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 22, remote: "192.0.2.12", rport: 44120, dir: "in", age: 9, bin: 2_900, bout: 3_400, rin: 300, rout: 340, owner: O.sshd, app: { proto: "ssh", ssh_client: "SSH-2.0-libssh_0.9.6", ssh_server: SSH_SERVER } },
   {
-    iface: "eno1", proto: "tcp", local: HOST4, lport: 80, remote: "159.89.48.201", rport: 38812, dir: "in", age: 3, idle: 2, bin: 610, bout: 540, state: "time_wait", owner: O.nginx,
+    iface: "eno1", proto: "tcp", local: HOST4, lport: 80, remote: "192.0.2.201", rport: 38812, dir: "in", age: 3, idle: 2, bin: 610, bout: 540, state: "time_wait", owner: O.nginx,
     app: { proto: "http", http_method: "GET", http_host: HOST4, http_path: "/wp-login.php?redirect_to=%2Fwp-admin%2F&reauth=1", user_agent: `${UA_CHROME} zgrab/0.x`, http_status: 404, server: "nginx/1.25.3" },
   },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 3389, remote: "193.163.125.14", rport: 61000, dir: "in", age: 2, bin: 60, bout: 40, state: "closed", rst_sent: 1 },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 6379, remote: "47.92.101.33", rport: 53120, dir: "in", age: 4, bin: 60, bout: 0, state: "unanswered" },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "121.36.212.9", rport: 47712, dir: "in", age: 1, bin: 60, bout: 60, state: "syn_recv", owner: O.caddy },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 48812, remote: "140.82.121.4", rport: 443, dir: "out", age: 6, bin: 3_800_000, bout: 41_000, rin: 640_000, rout: 2_000, connect_ms: 18.4, owner: O.git, app: { proto: "tls", sni: "github.com", alpn: "http/1.1" } },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 50110, remote: "149.137.128.10", rport: 443, dir: "out", age: 1_420, bin: 9_400_000, bout: 1_240_000_000, rin: 6_000, rout: 9_200_000, connect_ms: 31.9, retrans: 37, owner: O.restic, app: { proto: "tls", sni: "s3.eu-central-003.backblazeb2.com", alpn: "h2" } },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 39220, remote: "34.117.59.81", rport: 443, dir: "out", age: 3_300, bin: 81_000, bout: 1_900_000, rin: 20, rout: 600, connect_ms: 12.1, owner: O.temps, app: { proto: "tls", sni: "ingest.temps.sh", alpn: "h2" } },
-  { iface: "eno1", proto: "udp", local: HOST4, lport: 41641, remote: "3.120.10.20", rport: 41641, dir: "out", age: 5_400, bin: 210_000, bout: 190_000, rin: 90, rout: 80, owner: O.tailscaled },
-  { iface: "eno1", proto: "udp", local: HOST4, lport: 53114, remote: "9.9.9.9", rport: 53, dir: "out", age: 1, bin: 180, bout: 64, owner: O.resolved, app: { dns_qname: "registry-1.docker.io" } },
-  { iface: "eno1", proto: "udp", local: HOST4, lport: 45002, remote: "162.159.200.1", rport: 123, dir: "out", age: 4, bin: 90, bout: 90, owner: O.chrony },
-  { iface: "eno1", proto: "tcp", local: HOST4, lport: 52230, remote: "95.217.10.44", rport: 5432, dir: "out", age: 7, idle: 7, bin: 40, bout: 60, state: "failed", connect_ms: 2.1, rst_recv: 1, owner: O.backup },
-  { iface: "eno1", proto: "tcp", local: HOST6, lport: 52144, remote: "2a00:1450:4003:80e::200e", rport: 443, dir: "out", age: 21, bin: 64_000, bout: 3_100, rin: 900, rout: 40, connect_ms: 9.7, owner: O.curl, app: { proto: "tls", sni: "www.google.com", alpn: "h2" } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 3389, remote: "192.0.2.47", rport: 61000, dir: "in", age: 2, bin: 60, bout: 40, state: "closed", rst_sent: 1 },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 6379, remote: "192.0.2.33", rport: 53120, dir: "in", age: 4, bin: 60, bout: 0, state: "unanswered" },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "192.0.2.29", rport: 47712, dir: "in", age: 1, bin: 60, bout: 60, state: "syn_recv", owner: O.caddy },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 48812, remote: "203.0.113.140", rport: 443, dir: "out", age: 6, bin: 3_800_000, bout: 41_000, rin: 640_000, rout: 2_000, connect_ms: 18.4, owner: O.git, app: { proto: "tls", sni: "github.com", alpn: "http/1.1" } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 50110, remote: "203.0.113.149", rport: 443, dir: "out", age: 1_420, bin: 9_400_000, bout: 1_240_000_000, rin: 6_000, rout: 9_200_000, connect_ms: 31.9, retrans: 37, owner: O.restic, app: { proto: "tls", sni: "s3.eu-central-003.backblazeb2.com", alpn: "h2" } },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 39220, remote: "203.0.113.81", rport: 443, dir: "out", age: 3_300, bin: 81_000, bout: 1_900_000, rin: 20, rout: 600, connect_ms: 12.1, owner: O.temps, app: { proto: "tls", sni: "ingest.temps.sh", alpn: "h2" } },
+  { iface: "eno1", proto: "udp", local: HOST4, lport: 41641, remote: "203.0.113.20", rport: 41641, dir: "out", age: 5_400, bin: 210_000, bout: 190_000, rin: 90, rout: 80, owner: O.tailscaled },
+  { iface: "eno1", proto: "udp", local: HOST4, lport: 53114, remote: "198.51.100.53", rport: 53, dir: "out", age: 1, bin: 180, bout: 64, owner: O.resolved, app: { dns_qname: "registry-1.docker.io" } },
+  { iface: "eno1", proto: "udp", local: HOST4, lport: 45002, remote: "203.0.113.123", rport: 123, dir: "out", age: 4, bin: 90, bout: 90, owner: O.chrony },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 52230, remote: "198.51.100.44", rport: 5432, dir: "out", age: 7, idle: 7, bin: 40, bout: 60, state: "failed", connect_ms: 2.1, rst_recv: 1, owner: O.backup },
+  { iface: "eno1", proto: "tcp", local: HOST6, lport: 52144, remote: "2001:db8:4860::200e", rport: 443, dir: "out", age: 21, bin: 64_000, bout: 3_100, rin: 900, rout: 40, connect_ms: 9.7, owner: O.curl, app: { proto: "tls", sni: "www.google.com", alpn: "h2" } },
   { iface: "tailscale0", proto: "tcp", local: TS4, lport: 22, remote: "100.88.14.3", rport: 60122, dir: "in", age: 640, bin: 840_000, bout: 6_200_000, rin: 300, rout: 4_200, owner: O.sshd, app: { proto: "ssh", ssh_client: "SSH-2.0-OpenSSH_9.7", ssh_server: SSH_SERVER } },
   {
     iface: "tailscale0", proto: "tcp", local: TS4, lport: 41822, remote: "100.64.0.7", rport: 8080, dir: "out", age: 14, bin: 48_000, bout: 1_400, rin: 3_200, rout: 90, connect_ms: 4.4, owner: O.prometheus,
     app: { proto: "http", http_method: "GET", http_host: "nas.tail1234.ts.net:8080", http_path: "/metrics", user_agent: "Prometheus/2.51.0", http_status: 200, server: "node_exporter" },
   },
   { iface: "tailscale0", proto: "tcp", local: TS4, lport: 3000, remote: "100.88.14.3", rport: 60488, dir: "in", age: 380, bin: 120_000, bout: 3_900_000, rin: 200, rout: 9_000, owner: O.grafana, app: { proto: "http", http_method: "GET", http_host: "grafana.tail1234.ts.net", http_path: "/api/ds/query?ds_type=prometheus", user_agent: "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0", http_status: 200, server: "Grafana" } },
-  { iface: "docker0", proto: "tcp", local: "172.17.0.3", lport: 39012, remote: "104.16.27.34", rport: 443, dir: "out", age: 33, bin: 12_400_000, bout: 88_000, rin: 410_000, rout: 2_500, connect_ms: 7.8, owner: O.node, app: { proto: "tls", sni: "registry.npmjs.org", alpn: "h2" } },
-  { iface: "br-3f1c2a9e7b10", proto: "tcp", local: "172.18.0.5", lport: 51234, remote: "54.236.113.205", rport: 443, dir: "out", age: 4, bin: 8_100, bout: 1_900, rin: 2_000, rout: 400, connect_ms: 96.3, owner: O.watchtower, app: { proto: "tls", sni: "registry-1.docker.io", alpn: "http/1.1" } },
+  { iface: "docker0", proto: "tcp", local: "172.17.0.3", lport: 39012, remote: "203.0.113.104", rport: 443, dir: "out", age: 33, bin: 12_400_000, bout: 88_000, rin: 410_000, rout: 2_500, connect_ms: 7.8, owner: O.node, app: { proto: "tls", sni: "registry.npmjs.org", alpn: "h2" } },
+  { iface: "br-3f1c2a9e7b10", proto: "tcp", local: "172.18.0.5", lport: 51234, remote: "203.0.113.205", rport: 443, dir: "out", age: 4, bin: 8_100, bout: 1_900, rin: 2_000, rout: 400, connect_ms: 96.3, owner: O.watchtower, app: { proto: "tls", sni: "registry-1.docker.io", alpn: "http/1.1" } },
   { iface: "br-3f1c2a9e7b10", proto: "tcp", local: "172.18.0.2", lport: 5432, remote: "172.18.0.4", rport: 44310, dir: "in", age: 7_200, bin: 3_200_000, bout: 41_000_000, rin: 300, rout: 5_800, owner: O.postgres, peer: O.grafana },
   // A host client reaching the published port through docker-proxy.
   { iface: "br-3f1c2a9e7b10", proto: "tcp", local: "172.18.0.2", lport: 5432, remote: "172.18.0.1", rport: 51476, dir: "in", age: 95, bin: 18_000, bout: 240_000, rin: 40, rout: 900, owner: O.postgres, peer: O.dockerProxy },
@@ -915,13 +924,13 @@ const HTTP_PATHS = ["/.env", "/wp-login.php", "/phpmyadmin/index.php", "/cgi-bin
 const HTTP_UAS = [UA_CHROME, "curl/8.5.0", "python-requests/2.31.0", "Mozilla/5.0 zgrab/0.x", "Go-http-client/1.1", "masscan/1.3 (https://github.com/robertdavidgraham/masscan)"];
 const DNS_NAMES = ["github.com", "registry.npmjs.org", "registry-1.docker.io", "ingest.temps.sh", "archive.ubuntu.com", "s3.eu-central-003.backblazeb2.com", "time.cloudflare.com", "api.github.com", "objects.githubusercontent.com", "wpad.home.arpa"];
 const OUTBOUND: { owner: Owner; iface: string; local: string; remote: string; rport: number; app: AppMeta }[] = [
-  { owner: O.git, iface: "eno1", local: HOST4, remote: "140.82.121.4", rport: 443, app: { proto: "tls", sni: "github.com", alpn: "http/1.1" } },
-  { owner: O.node, iface: "docker0", local: "172.17.0.3", remote: "104.16.27.34", rport: 443, app: { proto: "tls", sni: "registry.npmjs.org", alpn: "h2" } },
-  { owner: O.watchtower, iface: "br-3f1c2a9e7b10", local: "172.18.0.5", remote: "54.236.113.205", rport: 443, app: { proto: "tls", sni: "registry-1.docker.io", alpn: "http/1.1" } },
-  { owner: O.curl, iface: "eno1", local: HOST6, remote: "2a00:1450:4003:80e::200e", rport: 443, app: { proto: "tls", sni: "www.google.com", alpn: "h2" } },
-  { owner: O.temps, iface: "eno1", local: HOST4, remote: "34.117.59.81", rport: 443, app: { proto: "tls", sni: "ingest.temps.sh", alpn: "h2" } },
+  { owner: O.git, iface: "eno1", local: HOST4, remote: "203.0.113.140", rport: 443, app: { proto: "tls", sni: "github.com", alpn: "http/1.1" } },
+  { owner: O.node, iface: "docker0", local: "172.17.0.3", remote: "203.0.113.104", rport: 443, app: { proto: "tls", sni: "registry.npmjs.org", alpn: "h2" } },
+  { owner: O.watchtower, iface: "br-3f1c2a9e7b10", local: "172.18.0.5", remote: "203.0.113.205", rport: 443, app: { proto: "tls", sni: "registry-1.docker.io", alpn: "http/1.1" } },
+  { owner: O.curl, iface: "eno1", local: HOST6, remote: "2001:db8:4860::200e", rport: 443, app: { proto: "tls", sni: "www.google.com", alpn: "h2" } },
+  { owner: O.temps, iface: "eno1", local: HOST4, remote: "203.0.113.81", rport: 443, app: { proto: "tls", sni: "ingest.temps.sh", alpn: "h2" } },
   {
-    owner: O.apt, iface: "eno1", local: HOST4, remote: "91.189.91.83", rport: 80,
+    owner: O.apt, iface: "eno1", local: HOST4, remote: "203.0.113.91", rport: 80,
     app: { proto: "http", http_method: "GET", http_host: "archive.ubuntu.com", http_path: "/ubuntu/dists/noble-updates/InRelease", user_agent: "Debian APT-HTTP/1.3 (2.7.14)", http_status: 200, server: "Apache/2.4.29 (Ubuntu)" },
   },
 ];
@@ -932,25 +941,25 @@ const eph = (r: () => number) => 32768 + Math.floor(r() * 28000);
 
 const TEMPLATES: [number, Template][] = [
   // SSH brute force
-  [18, (r, ago) => { const d = 2 + r() * 10; return { iface: "eno1", proto: "tcp", local: HOST4, lport: 22, remote: pick(r, ["218.92.0.112", "61.177.172.140"]), rport: eph(r), dir: "in", age: ago + d, idle: ago, bin: 2_000 + r() * 2_000, bout: 3_000 + r() * 2_000, state: "closed", owner: O.sshd, app: { proto: "ssh", ssh_client: pick(r, ["SSH-2.0-libssh_0.9.6", "SSH-2.0-Go", "SSH-2.0-paramiko_3.4.0"]), ssh_server: SSH_SERVER } }; }],
+  [18, (r, ago) => { const d = 2 + r() * 10; return { iface: "eno1", proto: "tcp", local: HOST4, lport: 22, remote: pick(r, ["192.0.2.12", "192.0.2.14"]), rport: eph(r), dir: "in", age: ago + d, idle: ago, bin: 2_000 + r() * 2_000, bout: 3_000 + r() * 2_000, state: "closed", owner: O.sshd, app: { proto: "ssh", ssh_client: pick(r, ["SSH-2.0-libssh_0.9.6", "SSH-2.0-Go", "SSH-2.0-paramiko_3.4.0"]), ssh_server: SSH_SERVER } }; }],
   // HTTP scanning
-  [10, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: 80, remote: pick(r, ["159.89.48.201", "47.92.101.33", "193.163.125.14"]), rport: eph(r), dir: "in", age: ago + 1, idle: ago, bin: 300 + r() * 600, bout: 400 + r() * 300, state: "closed", owner: O.nginx, app: { proto: "http", http_method: pick(r, ["GET", "GET", "POST", "HEAD"]), http_host: HOST4, http_path: pick(r, HTTP_PATHS), user_agent: pick(r, HTTP_UAS), http_status: pick(r, [404, 404, 404, 400, 301]), server: "nginx/1.25.3" } })],
+  [10, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: 80, remote: pick(r, ["192.0.2.201", "192.0.2.33", "192.0.2.47"]), rport: eph(r), dir: "in", age: ago + 1, idle: ago, bin: 300 + r() * 600, bout: 400 + r() * 300, state: "closed", owner: O.nginx, app: { proto: "http", http_method: pick(r, ["GET", "GET", "POST", "HEAD"]), http_host: HOST4, http_path: pick(r, HTTP_PATHS), user_agent: pick(r, HTTP_UAS), http_status: pick(r, [404, 404, 404, 400, 301]), server: "nginx/1.25.3" } })],
   // outbound TLS / HTTP
   [22, (r, ago) => { const o = pick(r, OUTBOUND); const d = 1 + r() * 300; return { iface: o.iface, proto: "tcp", local: o.local, lport: eph(r), remote: o.remote, rport: o.rport, dir: "out", age: ago + d, idle: ago, bin: 20_000 + r() * 8_000_000, bout: 2_000 + r() * 60_000, state: "closed", connect_ms: 5 + r() * 90, owner: o.owner, app: o.app }; }],
   // DNS
-  [20, (r, ago) => ({ iface: "eno1", proto: "udp", local: HOST4, lport: eph(r), remote: "9.9.9.9", rport: 53, dir: "out", age: ago, idle: ago, bin: 80 + r() * 300, bout: 50 + r() * 30, owner: O.resolved, app: { dns_qname: pick(r, DNS_NAMES) } })],
+  [20, (r, ago) => ({ iface: "eno1", proto: "udp", local: HOST4, lport: eph(r), remote: "198.51.100.53", rport: 53, dir: "out", age: ago, idle: ago, bin: 80 + r() * 300, bout: 50 + r() * 30, owner: O.resolved, app: { dns_qname: pick(r, DNS_NAMES) } })],
   // failed connects
   [5, (r, ago) => (r() < 0.6
-    ? { iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "95.217.10.44", rport: 5432, dir: "out", age: ago, idle: ago, bin: 40, bout: 60, state: "failed", connect_ms: 1.5 + r() * 2, rst_recv: 1, owner: O.backup }
-    : { iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "45.33.32.156", rport: 8443, dir: "out", age: ago + 21, idle: ago, bin: 0, bout: 360, state: "failed", connect_ms: 21_000 + r() * 500, retrans: 5, owner: O.curl })],
+    ? { iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "198.51.100.44", rport: 5432, dir: "out", age: ago, idle: ago, bin: 40, bout: 60, state: "failed", connect_ms: 1.5 + r() * 2, rst_recv: 1, owner: O.backup }
+    : { iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "198.51.100.156", rport: 8443, dir: "out", age: ago + 21, idle: ago, bin: 0, bout: 360, state: "failed", connect_ms: 21_000 + r() * 500, retrans: 5, owner: O.curl })],
   // tailscale SSH sessions
   [3, (r, ago) => { const d = 600 + r() * 7200; return { iface: "tailscale0", proto: "tcp", local: TS4, lport: 22, remote: "100.88.14.3", rport: eph(r), dir: "in", age: ago + d, idle: ago, bin: 200_000 + r() * 2e6, bout: 1e6 + r() * 2e7, state: "closed", connect_ms: 3 + r() * 4, owner: O.sshd, app: { proto: "ssh", ssh_client: "SSH-2.0-OpenSSH_9.7", ssh_server: SSH_SERVER } }; }],
   // nightly backup upload
-  [2, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "149.137.128.10", rport: 443, dir: "out", age: ago + 1800 + r() * 1800, idle: ago, bin: 9e6, bout: 1.5e9 + r() * 2e9, state: "closed", connect_ms: 30 + r() * 10, retrans: 10 + Math.floor(r() * 70), owner: O.restic, app: { proto: "tls", sni: "s3.eu-central-003.backblazeb2.com", alpn: "h2" } })],
+  [2, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: eph(r), remote: "203.0.113.149", rport: 443, dir: "out", age: ago + 1800 + r() * 1800, idle: ago, bin: 9e6, bout: 1.5e9 + r() * 2e9, state: "closed", connect_ms: 30 + r() * 10, retrans: 10 + Math.floor(r() * 70), owner: O.restic, app: { proto: "tls", sni: "s3.eu-central-003.backblazeb2.com", alpn: "h2" } })],
   // CDN edge to caddy
-  [15, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: pick(r, ["172.70.214.88", "162.158.90.41"]), rport: eph(r), dir: "in", age: ago + 5 + r() * 300, idle: ago, bin: 4_000 + r() * 400_000, bout: 20_000 + r() * 9e6, state: "closed", owner: O.caddy, app: { proto: "tls", sni: pick(r, ["app.example.com", "grafana.example.com", "example.com"]), alpn: "h2" } })],
+  [15, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: pick(r, ["198.51.100.88", "198.51.100.41"]), rport: eph(r), dir: "in", age: ago + 5 + r() * 300, idle: ago, bin: 4_000 + r() * 400_000, bout: 20_000 + r() * 9e6, state: "closed", owner: O.caddy, app: { proto: "tls", sni: pick(r, ["app.example.com", "grafana.example.com", "example.com"]), alpn: "h2" } })],
   // SYN scans answered with RST
-  [15, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: pick(r, [23, 445, 1433, 2375, 3306, 3389, 5900, 6379, 8080, 9200, 27017]), remote: pick(r, ["121.36.212.9", "193.163.125.14", "47.92.101.33"]), rport: eph(r), dir: "in", age: ago, idle: ago, bin: 60, bout: 40, state: "closed", rst_sent: 1 })],
+  [15, (r, ago) => ({ iface: "eno1", proto: "tcp", local: HOST4, lport: pick(r, [23, 445, 1433, 2375, 3306, 3389, 5900, 6379, 8080, 9200, 27017]), remote: pick(r, ["192.0.2.29", "192.0.2.47", "192.0.2.33"]), rport: eph(r), dir: "in", age: ago, idle: ago, bin: 60, bout: 40, state: "closed", rst_sent: 1 })],
 ];
 const TEMPLATE_TOTAL = TEMPLATES.reduce((a, [w]) => a + w, 0);
 
@@ -1312,16 +1321,16 @@ function listeners(): Listener[] {
 // dns
 
 const DNS_POOL: { name: string; w: number; answers: string[]; rcode?: string; client?: "tail" | "docker" }[] = [
-  { name: "github.com", w: 9, answers: ["140.82.121.4"] },
-  { name: "api.github.com", w: 5, answers: ["140.82.121.6"] },
-  { name: "registry.npmjs.org", w: 8, answers: ["104.16.27.34", "104.16.30.34"], client: "docker" },
-  { name: "registry-1.docker.io", w: 6, answers: ["54.236.113.205", "3.219.239.5"] },
-  { name: "ingest.temps.sh", w: 10, answers: ["34.117.59.81"] },
-  { name: "s3.eu-central-003.backblazeb2.com", w: 3, answers: ["149.137.128.10"] },
-  { name: "time.cloudflare.com", w: 2, answers: ["162.159.200.1", "162.159.200.123"] },
-  { name: "archive.ubuntu.com", w: 2, answers: ["91.189.91.83", "185.125.190.36"] },
-  { name: "www.google.com", w: 3, answers: ["2a00:1450:4003:80e::200e"] },
-  { name: "db.backup.example.com", w: 4, answers: ["95.217.10.44"] },
+  { name: "github.com", w: 9, answers: ["203.0.113.140"] },
+  { name: "api.github.com", w: 5, answers: ["203.0.113.141"] },
+  { name: "registry.npmjs.org", w: 8, answers: ["203.0.113.104", "203.0.113.105"], client: "docker" },
+  { name: "registry-1.docker.io", w: 6, answers: ["203.0.113.205", "203.0.113.206"] },
+  { name: "ingest.temps.sh", w: 10, answers: ["203.0.113.81"] },
+  { name: "s3.eu-central-003.backblazeb2.com", w: 3, answers: ["203.0.113.149"] },
+  { name: "time.cloudflare.com", w: 2, answers: ["203.0.113.123", "203.0.113.124"] },
+  { name: "archive.ubuntu.com", w: 2, answers: ["203.0.113.91", "203.0.113.92"] },
+  { name: "www.google.com", w: 3, answers: ["2001:db8:4860::200e"] },
+  { name: "db.backup.example.com", w: 4, answers: ["198.51.100.44"] },
   { name: "legacy-api.example.com", w: 1, answers: [], rcode: "TIMEOUT" },
   { name: "wpad.home.arpa", w: 4, answers: [], rcode: "NXDOMAIN" },
   { name: "telemetry.old-vendor.invalid", w: 2, answers: [], rcode: "NXDOMAIN", client: "docker" },
@@ -1347,7 +1356,7 @@ function dnsAll(t: number): DnsQuery[] {
       }
     }
     const v6 = d.answers.some((a) => a.includes(":"));
-    const where = d.client === "tail" ? { iface: "tailscale0", client: TS4, server: "100.100.100.100" } : d.client === "docker" ? { iface: "docker0", client: "172.17.0.3", server: "9.9.9.9" } : { iface: "eno1", client: HOST4, server: "9.9.9.9" };
+    const where = d.client === "tail" ? { iface: "tailscale0", client: TS4, server: "100.100.100.100" } : d.client === "docker" ? { iface: "docker0", client: "172.17.0.3", server: "198.51.100.53" } : { iface: "eno1", client: HOST4, server: "198.51.100.53" };
     const rcode = d.rcode ?? "NOERROR";
     out.push({
       ts: k * 9 - Math.floor(r() * 8),
@@ -1417,11 +1426,11 @@ function connEvents(q: URLSearchParams): ConnEvent[] {
   const q15 = Math.floor(t / 900) * 900;
   for (let i = 0; i < 4 * 24 * 3; i++) {
     const ts = q15 - i * 900 + 7;
-    out.push(ev(ts, "connect_failed", O.backup, HOST4, 40000 + ((i * 37) % 20000), "95.217.10.44", 5432, `${label(O.backup)} could not connect to 95.217.10.44:5432 (refused after ${(1.5 + (i % 3) * 0.4).toFixed(0)} ms)`));
+    out.push(ev(ts, "connect_failed", O.backup, HOST4, 40000 + ((i * 37) % 20000), "198.51.100.44", 5432, `${label(O.backup)} could not connect to 198.51.100.44:5432 (refused after ${(1.5 + (i % 3) * 0.4).toFixed(0)} ms)`));
   }
   for (let i = 0; i < 6; i++) {
     const ts = t - 1_000 - i * 11_000;
-    out.push(ev(ts, "connect_failed", O.curl, HOST4, 51000 + i, "45.33.32.156", 8443, `${label(O.curl)} could not connect to 45.33.32.156:8443 (timed out after 21 s)`));
+    out.push(ev(ts, "connect_failed", O.curl, HOST4, 51000 + i, "198.51.100.156", 8443, `${label(O.curl)} could not connect to 198.51.100.156:8443 (timed out after 21 s)`));
   }
   out.push(ev(t - 1_800, "listen", O.grafana, TS4, 3000, null, null, `${label(O.grafana)} listening on ${TS4}:3000`));
   out.push(ev(t - 5_400, "unlisten", O.node, "0.0.0.0", 9229, null, null, `${label(O.node)} stopped listening on port 9229`));

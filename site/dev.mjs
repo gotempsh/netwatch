@@ -20,10 +20,12 @@ for (const dir of ["content", "assets", "public"]) {
     timer = setTimeout(build, 100);
   });
 }
-fs.watch(path.join(ROOT, "build.mjs"), () => {
-  clearTimeout(timer);
-  timer = setTimeout(build, 100);
-});
+for (const file of ["build.mjs", "agent-prompt.mjs", "harness-logos.mjs"]) {
+  fs.watch(path.join(ROOT, file), () => {
+    clearTimeout(timer);
+    timer = setTimeout(build, 100);
+  });
+}
 
 http
   .createServer((req, res) => {

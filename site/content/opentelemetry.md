@@ -196,7 +196,7 @@ Every series carries the resource attributes `service.name` (`netwatch`), `servi
 | `netwatch.process.flows` | gauge | `{flow}` | `process.executable.name`, `container.name`, `netwatch.unit` |
 | `netwatch.process.throughput` | gauge | `bit/s` | `process.executable.name`, `container.name`, `netwatch.unit`, `network.io.direction` |
 
-The packet counters cover the primary interface since netwatch started. `netwatch.sources.active` counts sources seen in the last 10 minutes, `netwatch.sources.flagged` those at or above `ban.review_score`, `netwatch.ssh.failures` failed logins in the last hour, and `netwatch.listeners.exposed` services bound to anything but loopback (LAN and wildcard addresses included, as in the UI). `netwatch.direction` is `in` (they connected to us), `out` or `unknown`.
+The packet counters cover the primary interface since netwatch started. `netwatch.sources.active` counts sources seen in the last 10 minutes, `netwatch.sources.flagged` those at or above `ban.review_score`, `netwatch.ssh.failures` failed logins in the last hour (wrong passwords and nonexistent users), and `netwatch.listeners.exposed` services bound to anything but loopback (LAN and wildcard addresses included, as in the UI). `netwatch.direction` is `in` (they connected to us), `out` or `unknown`.
 
 Through the collector's Prometheus exporter the names become `netwatch_packets_total`, `netwatch_flows_active`, `netwatch_interface_throughput_bit_per_second` and so on.
 

@@ -240,7 +240,7 @@ async fn serve(app: &Arc<App>, cfg: &Config, rings: crate::kernel::Rings) -> any
     if cfg!(target_os = "macos") {
         log::info!("shutting down; removing the pf rules");
     } else {
-        log::info!("shutting down; XDP and TC programs detach with the process");
+        log::info!("shutting down; detaching the XDP and TC programs");
     }
     app.kernel.lock().unwrap().shutdown();
     // Keep what was still open: long-lived connections only reach the store when they end.
@@ -491,7 +491,7 @@ impl App {
             };
             let guard = match &mitigation {
                 Some(m) => format!("They didn't reach the TCP stack: {m}."),
-                None => "They reached the kernel: make sure it is patched, or set drop_syn_ip_options = true."
+                None => "They reached the kernel: make sure it is patched, or set drop_syn_ip_options = true in netwatch.toml and restart netwatch."
                     .to_string(),
             };
             log::warn!(
@@ -988,6 +988,7 @@ impl App {
             ip: ev.ip.to_string(),
             method: ev.method.clone(),
             location,
+            port: ev.port,
         };
         let known = {
             let store = self.store.lock().unwrap();

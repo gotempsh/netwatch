@@ -10,7 +10,7 @@ TC programs keep a table of every flow on the primary interface, and on Tailscal
 
 - direction (who connected to whom), bytes, packets and rates each way;
 - TCP state, connect latency, retransmits and resets. A SYN that no TCP packet answered is `unanswered`, not `established`: a probe of a closed port that a firewall or macOS stealth mode dropped, or that a firewall refused with ICMP (`REJECT`, firewalld's default). The kernel's own refusal, a RST, makes it `closed`. The ICMP reply is recorded as a flow of its own;
-- the owning process, with its systemd service or Docker container. This comes from the TCP tracepoints and a `/proc` scan every 15 s, so it also covers UDP, listeners and connections opened before netwatch started;
+- the owning process, with its systemd service or Docker container. This comes from the TCP tracepoints and a `/proc` scan every 15 s, so it also covers UDP, listeners and connections opened before netwatch started. A socket systemd opened for a service (socket activation, as for sshd on Ubuntu 24.04) belongs to the service;
 - application metadata parsed from the first payload in each direction: TLS SNI and ALPN, HTTP method, host, path, user agent and status, and SSH banners;
 - the DNS name the remote address was resolved from.
 
@@ -33,6 +33,18 @@ netwatch events --kind connect_failed           # failed outbound connects
 ```
 
 `netwatch conns` is an alias for `netwatch flows`.
+
+## When the kernel refuses the programs
+
+The kernel checks every eBPF program before it loads it, and older kernels are stricter. If it refuses the flow programs, netwatch keeps running without connection tracking: per-source counters, findings and bans still work, but Connections, DNS and exploit detection stay empty. `netwatch status` and the Status page then show the insight *Connection tracking is off*, `netwatch ifaces` lists no flows, and the daemon log has the kernel's reason:
+
+```shell
+journalctl -u netwatch -b | grep 'flow program'
+```
+
+In Docker, read the container's log instead: `docker logs <container>`, or `docker compose logs netwatch` with the repository's `docker-compose.yml`.
+
+netwatch 0.1.3 and older hit this on older kernels such as Debian 12 (6.1) and Ubuntu 22.04 (5.15); `sudo netwatch update` fixes it. On a newer release, please [open an issue](https://github.com/gotempsh/netwatch/issues) with that output and `uname -r`.
 
 ## Settings
 

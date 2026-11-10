@@ -566,8 +566,12 @@ fn sample(ctx: &TcContext, key: &FlowKey, out: bool, kind: u8, off: usize, plen:
     if n == 0 {
         return;
     }
-    // Same value for n in 1..=PAYLOAD_CAP, but provably in range for the verifier.
-    let n = ((n - 1) & (PAYLOAD_CAP - 1)) + 1;
+    // Same value for n in 1..=PAYLOAD_CAP, but provably in range for the
+    // verifier, which on older kernels (5.15, 6.1) doesn't learn n >= 1 from
+    // the check above. The volatile read keeps LLVM, which does know, from
+    // folding the mask away.
+    let n = unsafe { core::ptr::read_volatile(&n) };
+    let n = (n.wrapping_sub(1) & (PAYLOAD_CAP - 1)) + 1;
     let Some(mut e) = PAYLOADS.reserve::<PayloadEvent>(0) else {
         return;
     };

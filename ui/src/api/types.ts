@@ -60,7 +60,7 @@ export interface Source {
 
 export interface FeedHit {
   name: string;
-  range: string; // e.g. "185.93.89.0/24"
+  range: string; // e.g. "192.0.2.0/24"
   about: string; // one line on what the feed lists; may be empty
 }
 

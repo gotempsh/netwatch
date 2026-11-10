@@ -1975,6 +1975,7 @@ mod tests {
             ip: "203.0.113.7".into(),
             method: Some("password".into()),
             location: String::new(),
+            port: None,
         };
         let proposal = ProposalRow {
             id: 42,
@@ -2080,6 +2081,7 @@ mod tests {
             ip: "203.0.113.7".into(),
             method: Some("password".into()),
             location: String::new(),
+            port: None,
         };
         store
             .add_ssh_event(&ssh(now - 3_000, "accepted", "deploy"))

@@ -716,8 +716,44 @@ fn check_header_list(s: &str, var: &str) -> anyhow::Result<()> {
                 "has a value that isn't printable ASCII (percent-encode it)",
             ));
         }
+        // The exporter trims and decodes the value, then drops it when it is
+        // empty or HeaderValue refuses a byte, such as an encoded newline.
+        let decoded = percent_decode(v.trim());
+        if decoded.is_empty() {
+            return Err(bad("has an empty value"));
+        }
+        if decoded
+            .bytes()
+            .any(|b| (b < 0x20 && b != b'\t') || b == 0x7f)
+        {
+            return Err(bad("has a value that decodes to a control character"));
+        }
     }
     Ok(())
+}
+
+/// Decodes `%XX` as the exporter does: a value that doesn't decode to UTF-8
+/// is sent as written.
+fn percent_decode(v: &str) -> String {
+    let mut out = Vec::with_capacity(v.len());
+    let mut bytes = v.bytes();
+    while let Some(b) = bytes.next() {
+        if b != b'%' {
+            out.push(b);
+            continue;
+        }
+        let hex = [bytes.next(), bytes.next()];
+        match hex {
+            [Some(h), Some(l)] => {
+                match u8::from_str_radix(&format!("{}{}", h as char, l as char), 16) {
+                    Ok(d) => out.push(d),
+                    Err(_) => return v.to_string(),
+                }
+            }
+            _ => return v.to_string(),
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| v.to_string())
 }
 
 // ---- metrics snapshot ----
@@ -1007,6 +1043,16 @@ mod tests {
         assert!(e.contains("header name") && !e.contains("s3cret"), "{e}");
         let e = err("t=tok%Aé");
         assert!(e.contains("printable") && !e.contains("tok"), "{e}");
+        // Entries the exporter would drop without a word.
+        assert!(err("x-honeycomb-team=").contains("entry 1 has an empty value"));
+        assert!(err("a=1,Authorization= ").contains("entry 2 has an empty value"));
+        let e = err("Authorization=Bearer%20s3cret%0A");
+        assert!(
+            e.contains("control character") && !e.contains("s3cret"),
+            "{e}"
+        );
+        // What the exporter decodes or sends as written is fine.
+        check_header_list("a=caf%C3%A9,b=%ZZ,c=tab%09ok", "H").unwrap();
     }
 
     #[test]

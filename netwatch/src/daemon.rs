@@ -182,6 +182,19 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         None,
     );
 
+    let result = serve(&app, &cfg, rings).await;
+    if let Some(o) = &app.otel {
+        // Whatever ended the daemon, send what is queued. The tick thread holds
+        // the App, so nothing would be flushed when it is dropped.
+        // Flushing makes HTTP requests; keep them off the async workers.
+        tokio::task::block_in_place(|| o.shutdown());
+    }
+    result
+}
+
+/// Everything after the App exists: the tasks, waiting for a signal, and the
+/// final writes.
+async fn serve(app: &Arc<App>, cfg: &Config, rings: crate::kernel::Rings) -> anyhow::Result<()> {
     app.refresh_allowlist().await?;
     app.restore_bans()?;
     app.check_sshd();
@@ -237,18 +250,14 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         rows.extend(e.drain_flows(now));
         (rows, dns, events, e.bytes.take_unsaved())
     };
-    {
-        let mut store = app.store.lock().unwrap();
-        store.add_flows(&rows)?;
-        store.add_dns(&dns)?;
-        store.add_conn_events(&events)?;
-        store.add_window_bytes(&minutes)?;
-    }
     if let Some(o) = &app.otel {
         o.conn_events(&events);
-        // Flushing makes HTTP requests; keep them off the async workers.
-        tokio::task::block_in_place(|| o.shutdown());
     }
+    let mut store = app.store.lock().unwrap();
+    store.add_flows(&rows)?;
+    store.add_dns(&dns)?;
+    store.add_conn_events(&events)?;
+    store.add_window_bytes(&minutes)?;
     Ok(())
 }
 

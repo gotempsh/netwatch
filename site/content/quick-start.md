@@ -19,7 +19,7 @@ No server yet? The [live demo](/demo/) is the same UI on demo data, so you can f
 
 ![The Overview page: host status, live rates, flagged sources, bans and proposals](/screenshots/overview.png "Overview: the host, live packet and SYN rates, flagged sources, active bans and pending proposals.")
 
-The strip at the top shows the host, the interface XDP is attached to and how (driver or generic), the mode, whether bans drop packets, the threat feeds loaded and, if configured, the model and its token budget.
+The strip at the top shows the host, the interface XDP is attached to and how (`driver`, or `skb` for generic mode), the mode, whether bans drop packets, the threat feeds loaded and, if configured, the model and its token budget.
 
 ## 2. Read the insights
 
@@ -61,6 +61,13 @@ sudo netwatch approve 7          # apply proposal 7
 sudo netwatch reject 8
 sudo netwatch ban 203.0.113.0/24 --ttl 7d --reason "scanner subnet"
 sudo netwatch allow 198.51.100.4 # never ban this address
+```
+
+To lift a ban, by hand or approved, use its target as `netwatch bans` lists it. The source's page in the UI shows the same command:
+
+```shell
+netwatch bans                    # active bans and when they expire
+sudo netwatch unban 203.0.113.0/24
 ```
 
 A ban drops the source's packets in XDP before the kernel's network stack sees them. On macOS it goes into a pf table.

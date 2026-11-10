@@ -709,10 +709,10 @@
   stroke-opacity: 0.9;
   stroke-dasharray: 4 3;
 }
-.host-map.has-focus .map-edge {
+.host-map.has-focus .map-grid .map-edge {
   stroke-opacity: 0.12;
 }
-.host-map.has-focus .map-edge.lit {
+.host-map.has-focus .map-grid .map-edge.lit {
   stroke-opacity: 0.95;
 }
 .host-map.has-focus .map-node:not(.lit) {
@@ -753,7 +753,10 @@
   background: none;
   color: var(--muted);
   cursor: pointer;
-  padding: 0 4px;
+  padding: 0;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -4px -6px -4px 0;
 }
 
 /* ---------- responsive ---------- */

@@ -273,7 +273,7 @@ export default function TrafficMap() {
               <tbody>
                 {list.data.map((f, i) => (
                   <tr key={`${f.remote}${f.rport}${f.lport}${f.first_seen}${i}`} className={f.state === "failed" || f.state === "unanswered" ? "tr-bad" : ""}>
-                    <td>{f.dir === "in" ? (f.container ?? f.unit ?? f.process ?? <span className="muted">nothing listening</span>) : owner(f)}</td>
+                    <td className="nowrap">{f.dir === "in" ? (f.container ?? f.unit ?? f.process ?? <span className="muted">nothing listening</span>) : owner(f)}</td>
                     <td className="clip-cell">
                       <span className="mono" title={f.remote_name ? `${f.remote_name} ${f.remote}` : f.remote}>{f.remote_name ?? f.remote}</span>
                       {f.remote_name && <span className="muted mono small hide-sm"> {f.remote}</span>}

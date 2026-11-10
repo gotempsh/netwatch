@@ -619,6 +619,176 @@ figcaption {
   margin-bottom: 2px;
 }
 
+/* ---- Copy prompt: the card on the home page and the button in the top bar ---- */
+
+.prompt-card {
+  margin: 0 0 28px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+}
+.prompt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.prose ul.harnesses {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.prose ul.harnesses li {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.harnesses svg {
+  width: 100%;
+  height: 100%;
+}
+.prose .prompt-row p {
+  flex: 1;
+  min-width: 190px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+.prompt-copy,
+.prompt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.prompt-copy {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 14px;
+}
+.prompt-copy:hover {
+  opacity: 0.88;
+}
+.prompt-copy svg:nth-of-type(2),
+.prompt-pill svg:nth-of-type(2),
+.copied svg:nth-of-type(1) {
+  display: none;
+}
+.copied svg:nth-of-type(2) {
+  display: block;
+}
+.prompt-text {
+  margin-top: 12px;
+  font-size: 14px;
+}
+.prompt-text summary {
+  cursor: pointer;
+  color: var(--fg-muted);
+  width: fit-content;
+}
+.prompt-text summary:hover {
+  color: var(--fg);
+}
+.prompt-text pre,
+.prompt-pop pre {
+  max-height: 320px;
+  margin: 8px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font: 12px/1.65 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.prompt-top {
+  position: relative;
+}
+.prompt-pill {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  font-size: 13px;
+}
+.prompt-pill:hover {
+  background: var(--border);
+}
+.prompt-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(32rem, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+}
+.prompt-pop p {
+  margin: 0;
+}
+
+/* Numbered steps, written as ### sections between <!-- steps --> markers. */
+.prose ol.steps {
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+  counter-reset: step;
+}
+.prose ol.steps > li {
+  position: relative;
+  margin: 0;
+  padding: 0 0 8px 44px;
+  counter-increment: step;
+}
+.prose ol.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.prose ol.steps > li::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 36px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border);
+}
+.prose ol.steps > li:last-child::after {
+  display: none;
+}
+.prose ol.steps h3 {
+  margin: 2px 0 8px;
+}
+
 /* ---- pager ---- */
 
 .pager {
@@ -697,6 +867,26 @@ figcaption {
   .top-link {
     display: none;
   }
+  .prompt-pill {
+    padding: 0 10px;
+  }
+  .prompt-pop {
+    position: fixed;
+    top: calc(var(--top) + 8px);
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+  .prose ol.steps > li {
+    padding-left: 0;
+  }
+  .prose ol.steps > li::before {
+    position: static;
+    margin-bottom: 10px;
+  }
+  .prose ol.steps > li::after {
+    display: none;
+  }
   h1 {
     font-size: 27px;
   }
@@ -723,5 +913,10 @@ figcaption {
   }
   .code pre {
     padding-right: 48px;
+  }
+}
+@media (max-width: 480px) {
+  .version {
+    display: none;
   }
 }

@@ -78,6 +78,60 @@ if (box) {
   }
 }
 
+// ---- Copy prompt: the card on the home page and the button in the top bar ----
+
+// Unlike copy(), says whether it worked: if the browser refuses, the prompt
+// is shown to be selected by hand instead.
+async function copyPrompt() {
+  try {
+    await navigator.clipboard.writeText(document.querySelector(".prompt-pop pre").textContent);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function confirmCopy(btn, failed) {
+  const label = btn.querySelector("span");
+  label.dataset.text ??= label.textContent;
+  if (!failed) btn.classList.add("copied");
+  label.textContent = failed ? "Select it below" : "Copied";
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => {
+    btn.classList.remove("copied");
+    label.textContent = label.dataset.text;
+  }, 2000);
+}
+
+for (const card of document.querySelectorAll(".prompt-card")) {
+  const btn = card.querySelector("[data-copy-prompt]");
+  btn.addEventListener("click", async () => {
+    const ok = await copyPrompt();
+    if (!ok) card.querySelector("details").open = true;
+    confirmCopy(btn, !ok);
+  });
+}
+
+const promptTop = document.querySelector(".prompt-top");
+if (promptTop) {
+  const btn = promptTop.querySelector("[data-copy-prompt]");
+  const pop = promptTop.querySelector(".prompt-pop");
+  btn.addEventListener("click", async () => {
+    if (await copyPrompt()) {
+      pop.hidden = true;
+      confirmCopy(btn, false);
+    } else {
+      pop.hidden = false;
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!promptTop.contains(e.target)) pop.hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") pop.hidden = true;
+  });
+}
+
 // ---- On this page: highlight the section in view ----
 
 const links = [...document.querySelectorAll(".toc a")];

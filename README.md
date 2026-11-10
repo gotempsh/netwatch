@@ -274,11 +274,14 @@ sudo netwatch allow 198.51.100.4    # never ban; also bypasses XDP drops
 
 When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and run `sudo systemctl restart netwatch`.
 
-To let an AI coding agent investigate with netwatch, install its skill (no `sudo`; it goes to `~/.claude/skills`, or `--dir` elsewhere):
+To let an AI coding agent investigate with netwatch, install its skill as yourself (no `sudo`), then start a new agent session:
 
 ```shell
-netwatch skill --install
+netwatch skill --install                          # Claude Code and Cursor
+netwatch skill --install --dir ~/.agents/skills   # Codex and other agents
 ```
+
+Then ask it things like "who is attacking this server?" or "what does nginx connect to?". The [AI agents](https://gotempsh.github.io/netwatch/agents/) page covers every agent, project-only installs and running the agent from your laptop.
 
 ## Ban policy
 

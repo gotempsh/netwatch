@@ -220,15 +220,16 @@ enum Cmd {
     /// Print the agent skill for this version, or install it (no daemon needed).
     ///
     /// Examples:
-    ///   netwatch skill --install                      # for Claude Code: ~/.claude/skills
-    ///   netwatch skill --install --dir .claude/skills # this project only
+    ///   netwatch skill --install                        # Claude Code and Cursor: ~/.claude/skills
+    ///   netwatch skill --install --dir ~/.agents/skills # Codex and other agents
+    ///   netwatch skill --install --dir .claude/skills   # this project only
     ///   netwatch skill > SKILL.md
     #[command(verbatim_doc_comment)]
     Skill {
         /// Write <dir>/netwatch/SKILL.md instead of printing it.
         #[arg(long)]
         install: bool,
-        /// Skills directory to install into [default: ~/.claude/skills]
+        /// Skills directory to install into, e.g. ~/.agents/skills for Codex [default: ~/.claude/skills]
         #[arg(long, requires = "install")]
         dir: Option<PathBuf>,
     },

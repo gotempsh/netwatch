@@ -1314,11 +1314,12 @@ impl Store {
     /// Returns false when the event was already stored (journal replay after restart).
     pub fn add_ssh_event(&self, e: &SshEventRow) -> anyhow::Result<bool> {
         // The UNIQUE key alone lets a row with no user, method or port in twice:
-        // NULLs never match there.
+        // NULLs never match there. A row stored before the port was has none, and
+        // is the same line when the journal replays it with one.
         Ok(self.conn.execute(
             "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location, port)
              SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE NOT EXISTS (SELECT 1 FROM ssh_events
-               WHERE ts=?1 AND kind=?2 AND ip=?4 AND user IS ?3 AND method IS ?5 AND port IS ?7)",
+               WHERE ts=?1 AND kind=?2 AND ip=?4 AND user IS ?3 AND method IS ?5 AND (port IS ?7 OR port IS NULL))",
             params![e.ts, e.kind, e.user, e.ip, e.method, e.location, e.port],
         )? > 0)
     }
@@ -1820,6 +1821,17 @@ mod tests {
         // Opening it twice: the rebuild happens once and keeps what was stored.
         for _ in 0..2 {
             let s = Store::open(&path).unwrap();
+            // The journal replays the stored login, now with its port.
+            let replayed = SshEventRow {
+                ts: 50,
+                kind: "accepted".into(),
+                user: Some("alice".into()),
+                ip: "198.51.100.7".into(),
+                method: Some("publickey".into()),
+                location: "NL".into(),
+                port: Some(5555),
+            };
+            assert!(!s.add_ssh_event(&replayed).unwrap());
             assert_eq!(s.ssh_events(0, Some("198.51.100.7"), 10).unwrap().len(), 1);
             s.add_ssh_event(&failed(40001)).unwrap();
             s.add_ssh_event(&failed(40002)).unwrap();

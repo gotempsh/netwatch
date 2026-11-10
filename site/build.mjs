@@ -9,6 +9,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Marked } from "marked";
 import { createHighlighter } from "shiki";
+import { agentPrompt } from "./agent-prompt.mjs";
+import { harnesses } from "./harness-logos.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(ROOT, "dist");
@@ -89,7 +91,32 @@ const ICON_CHECK = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" 
 const ICON_MD = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l2.5 3L11 9v6M16 9v6m-2.5-2.5L16 15l2.5-2.5" stroke-linecap="round"/></svg>`;
 const ICON_GH = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+const ICON_SPARKLES = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/><path d="M20 3v4M22 5h-4"/></svg>`;
 const LOGO = `<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>`;
+
+// ---- the set-up prompt for coding agents -------------------------------------
+
+const PROMPT_TITLE = "Copy a prompt that installs netwatch, for your coding agent";
+
+// <!-- copy-prompt --> on a page: the agents it is for, one line, the button,
+// and the prompt underneath so nobody pastes one they haven't read.
+const promptCard = `<div class="prompt-card">
+  <div class="prompt-row">
+    <ul class="harnesses" aria-label="Works with ${harnesses.map((h) => h.name).join(", ")} and other coding agents">${harnesses
+      .map((h) => `<li title="${esc(h.name)}">${h.svg}</li>`)
+      .join("")}</ul>
+    <p>Paste it into your coding agent to install netwatch.</p>
+    <button class="prompt-copy" type="button" data-copy-prompt>${ICON_SPARKLES}${ICON_CHECK}<span>Copy prompt</span></button>
+  </div>
+  <details class="prompt-text"><summary>Read the prompt</summary><pre>${esc(agentPrompt)}</pre></details>
+</div>`;
+
+// The same prompt in the top bar of every page. Where the browser refuses the
+// clipboard, the prompt opens under the button to be selected by hand.
+const promptButton = `<div class="prompt-top">
+  <button class="prompt-pill" type="button" data-copy-prompt title="${PROMPT_TITLE}">${ICON_SPARKLES}${ICON_CHECK}<span>Copy prompt</span></button>
+  <div class="prompt-pop" hidden><p>Your browser refused the clipboard. Select the prompt and copy it:</p><pre>${esc(agentPrompt)}</pre></div>
+</div>`;
 
 function render(md) {
   const toc = [];
@@ -137,11 +164,18 @@ function render(md) {
       },
     },
   });
-  // Paragraphs holding just an image would wrap a <figure> in <p>, and a list of links after <!-- cards --> renders as cards.
+  // Paragraphs holding just an image would wrap a <figure> in <p>, a list of
+  // links after <!-- cards --> renders as cards, and each ### between
+  // <!-- steps --> and <!-- /steps --> becomes a numbered step.
   const html = marked
     .parse(md)
     .replace(/<p>(<figure[\s\S]*?<\/figure>)<\/p>/g, "$1")
-    .replace(/<!-- cards -->\s*<ul>/g, '<ul class="cards">');
+    .replace(/<!-- cards -->\s*<ul>/g, '<ul class="cards">')
+    .replace(/<!-- copy-prompt -->/g, promptCard)
+    .replace(/<!-- steps -->([\s\S]*?)<!-- \/steps -->/g, (_, inner) => {
+      const steps = inner.split(/(?=<h3 )/).filter((s) => s.trim());
+      return `<ol class="steps">${steps.map((s) => `<li>${s}</li>`).join("")}</ol>`;
+    });
   return { html, toc };
 }
 
@@ -150,7 +184,8 @@ function render(md) {
 // Absolute links and images, so the copy works pasted anywhere.
 function agentMarkdown(p) {
   const body = p.body
-    .replace(/<!-- cards -->\n/g, "")
+    .replace(/<!-- (cards|steps|\/steps) -->\n/g, "")
+    .replace(/<!-- copy-prompt -->/g, () => `\`\`\`text\n${agentPrompt}\n\`\`\``)
     .replace(/\]\((\/screenshots\/[^)\s]+)\.png(\s+"[^"]*")?\)/g, (_, s) => `](${SITE_URL}${s}-dark.png)`)
     .replace(/\]\((\/[^)\s]*)/g, (_, u) => {
       const [pathPart, hash = ""] = u.split("#");
@@ -221,6 +256,7 @@ function layout(p, i, html, toc, bare = false) {
   <a class="brand" href="${BASE}">${LOGO}netwatch</a>
   <a class="version" href="https://github.com/${REPO}/releases" rel="noopener">v${VERSION}</a>
   <div class="spacer"></div>
+  ${promptButton}
   <a class="top-link" href="${BASE}llms.txt">llms.txt</a>
   <a class="icon-btn" href="https://github.com/${REPO}" aria-label="GitHub" rel="noopener">${ICON_GH}</a>
   <button class="icon-btn theme" type="button" aria-label="Toggle dark mode"><svg class="sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></svg><svg class="moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>

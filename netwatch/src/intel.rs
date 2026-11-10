@@ -317,7 +317,7 @@ fn run(cmd: &str, args: &[&str]) -> Answer {
         Ok(None) => Answer::Nothing,
         Err(()) => {
             log::warn!(
-                "`{cmd} {}` didn't answer within {}s; keeping the addresses it gave last time and trying again in 10 minutes",
+                "`{cmd} {}` didn't answer within {}s; trying again in 10 minutes",
                 args.join(" "),
                 RUN_TIMEOUT.as_secs()
             );
@@ -386,17 +386,30 @@ fn endpoint_ip(s: &str) -> Option<IpAddr> {
     s.parse::<std::net::SocketAddr>().ok().map(|a| a.ip())
 }
 
+/// What a source last gave, and how many refreshes in a row it has timed out since.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct Found {
+    addrs: BTreeSet<IpNet>,
+    timeouts: u32,
+}
+
 /// Addresses discovered from the running system that must never be banned,
 /// by source ("wireguard", "tailscale", ...).
-pub type Peers = std::collections::BTreeMap<&'static str, BTreeSet<IpNet>>;
+pub type Peers = std::collections::BTreeMap<&'static str, Found>;
+
+/// Refreshes in a row a timed-out source keeps its last addresses for.
+/// A stopped Tailscale hangs rather than failing, so without a limit its
+/// former peers would stay exempt from bans until netwatch restarts.
+const KEEP_THROUGH_TIMEOUTS: u32 = 2;
 
 pub fn all_peers(peers: &Peers) -> impl Iterator<Item = IpNet> + '_ {
-    peers.values().flatten().copied()
+    peers.values().flat_map(|f| f.addrs.iter().copied())
 }
 
 /// A source's public addresses from its answer. A command that timed out
-/// keeps what it gave last time: a slow `tailscale` shouldn't take its peers
-/// off the allowlist for the next 10 minutes.
+/// keeps what it gave last time for a couple of refreshes: a slow `tailscale`
+/// shouldn't take its peers off the allowlist, but one that keeps hanging
+/// (its daemon stopped) lets them go.
 fn record(
     out: &mut Peers,
     previous: &Peers,
@@ -404,16 +417,36 @@ fn record(
     answer: Answer,
     parse: impl Fn(&str) -> Vec<IpAddr>,
 ) {
-    let set = match answer {
-        Answer::Output(text) => parse(&text)
-            .into_iter()
-            .filter(|ip| crate::util::is_public(*ip))
-            .map(IpNet::from)
-            .collect(),
-        Answer::Nothing => BTreeSet::new(),
-        Answer::TimedOut => previous.get(source).cloned().unwrap_or_default(),
+    let found = match answer {
+        Answer::Output(text) => Found {
+            addrs: parse(&text)
+                .into_iter()
+                .filter(|ip| crate::util::is_public(*ip))
+                .map(IpNet::from)
+                .collect(),
+            timeouts: 0,
+        },
+        Answer::Nothing => Found::default(),
+        Answer::TimedOut => {
+            let last = previous.get(source).cloned().unwrap_or_default();
+            let timeouts = last.timeouts.saturating_add(1);
+            if timeouts == KEEP_THROUGH_TIMEOUTS + 1 && !last.addrs.is_empty() {
+                log::warn!(
+                    "{source} discovery has timed out {timeouts} times in a row; its {} addresses are no longer allowlisted",
+                    last.addrs.len()
+                );
+            }
+            Found {
+                addrs: if timeouts <= KEEP_THROUGH_TIMEOUTS {
+                    last.addrs
+                } else {
+                    BTreeSet::new()
+                },
+                timeouts,
+            }
+        }
     };
-    out.insert(source, set);
+    out.insert(source, found);
 }
 
 /// `wg show all endpoints`: `<iface>\t<peer pubkey>\t<endpoint>`.
@@ -611,44 +644,40 @@ mod tests {
     }
 
     #[test]
-    fn a_timed_out_source_keeps_its_last_addresses() {
-        use super::{Answer, Peers, record, tailscale_peers};
+    fn a_timed_out_source_keeps_its_last_addresses_for_a_while() {
+        use super::{Answer, KEEP_THROUGH_TIMEOUTS, Peers, all_peers, record, tailscale_peers};
+        use std::collections::BTreeSet;
         let ip = |s: &str| ipnet::IpNet::from(s.parse::<std::net::IpAddr>().unwrap());
         let status = r#"{"Peer":{"a":{"Addrs":["203.0.113.5:41641","10.0.0.2:41641"],"CurAddr":"198.51.100.7:41641"}}}"#;
-        let mut first = Peers::new();
-        record(
-            &mut first,
-            &Peers::new(),
-            "tailscale",
-            Answer::Output(status.into()),
-            tailscale_peers,
-        );
+        let refresh = |previous: &Peers, answer| {
+            let mut out = Peers::new();
+            record(&mut out, previous, "tailscale", answer, tailscale_peers);
+            out
+        };
+        let addrs = |p: &Peers| all_peers(p).collect::<BTreeSet<_>>();
+        let first = refresh(&Peers::new(), Answer::Output(status.into()));
         // Private addresses never go on the list.
-        assert_eq!(
-            first["tailscale"],
-            [ip("198.51.100.7"), ip("203.0.113.5")]
-                .into_iter()
-                .collect()
-        );
-        let mut slow = Peers::new();
-        record(
-            &mut slow,
-            &first,
-            "tailscale",
-            Answer::TimedOut,
-            tailscale_peers,
-        );
-        assert_eq!(slow["tailscale"], first["tailscale"]);
-        // Stopped: there are no peers to keep.
-        let mut stopped = Peers::new();
-        record(
-            &mut stopped,
-            &first,
-            "tailscale",
-            Answer::Nothing,
-            tailscale_peers,
-        );
-        assert!(stopped["tailscale"].is_empty());
+        let known: BTreeSet<_> = [ip("198.51.100.7"), ip("203.0.113.5")].into();
+        assert_eq!(addrs(&first), known);
+
+        // A slow refresh or two keeps them.
+        let mut peers = first.clone();
+        for _ in 0..KEEP_THROUGH_TIMEOUTS {
+            peers = refresh(&peers, Answer::TimedOut);
+            assert_eq!(addrs(&peers), known);
+        }
+        // One that keeps hanging, as a stopped Tailscale does, lets them go.
+        peers = refresh(&peers, Answer::TimedOut);
+        assert!(addrs(&peers).is_empty());
+        peers = refresh(&peers, Answer::TimedOut);
+        assert!(addrs(&peers).is_empty());
+        // An answer starts the count again.
+        peers = refresh(&peers, Answer::Output(status.into()));
+        peers = refresh(&peers, Answer::TimedOut);
+        assert_eq!(addrs(&peers), known);
+
+        // Failed or not installed: there are no peers to keep.
+        assert!(addrs(&refresh(&first, Answer::Nothing)).is_empty());
     }
 
     #[test]

@@ -43,7 +43,7 @@ npm --prefix ui run dev:mock     # against built-in demo data, no daemon needed
 npm --prefix ui run dev          # against a local daemon on :9180
 ```
 
-The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show, and what the [live demo](/demo/) runs on.
+The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show, and what the [live demo](/demo/) runs on. Its addresses come from the documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 and 2001:db8::/32), so no real host appears in a screenshot; keep new demo data in them too.
 
 ## Docs
 

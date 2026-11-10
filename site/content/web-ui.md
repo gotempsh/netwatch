@@ -30,7 +30,7 @@ One address in full: why it scored what it did, which feeds list it and the matc
 
 ![Source detail](/screenshots/source-detail.png)
 
-Terminal: `netwatch ip 218.92.0.112`.
+Terminal: `netwatch ip 192.0.2.12`.
 
 ## Connections
 

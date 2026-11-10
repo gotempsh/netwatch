@@ -82,3 +82,4 @@ In enforce mode sources that cross `ban.auto_ban_score` are banned automatically
 - [The web UI](/web-ui): every page, with screenshots.
 - [Slack notifications](/slack): get told about new proposals and suspicious logins.
 - [AI analysis](/ai-analysis): let a model review the sources the rules can't settle.
+- [AI agents](/agents): ask Claude Code, Codex or Cursor what is happening on the server.

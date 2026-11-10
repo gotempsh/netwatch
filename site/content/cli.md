@@ -111,12 +111,13 @@ On Linux, `scripts/install.sh` installs the systemd service; see [Installation](
 
 ## Agent skill
 
-netwatch ships a skill that teaches AI coding agents (Claude Code and others that read `SKILL.md` skills) to investigate with netwatch: which command answers which question, the JSON API, how to read scores and private addresses, and to ask before banning anything.
+netwatch ships a skill that teaches AI coding agents (Claude Code, Codex, Cursor and others that read `SKILL.md` skills) to investigate with netwatch: which command answers which question, the JSON API, how to read scores and private addresses, and to ask before banning anything.
 
 ```shell
-netwatch skill --install                       # Claude Code, for you: ~/.claude/skills/netwatch
-netwatch skill --install --dir .claude/skills  # one project only
-netwatch skill                                 # print it, to put it anywhere else
+netwatch skill --install                          # Claude Code and Cursor: ~/.claude/skills/netwatch
+netwatch skill --install --dir ~/.agents/skills   # Codex and other agents
+netwatch skill --install --dir .claude/skills     # one project only
+netwatch skill                                    # print it, to put it anywhere else
 ```
 
-The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it as yourself: under `sudo` it refuses unless you pass `--dir`, because the files would belong to root. Agents that add skills from a GitHub repository can also take it from [`skills/netwatch`](https://github.com/gotempsh/netwatch/tree/main/skills/netwatch).
+The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it as yourself: under `sudo` it refuses unless you pass `--dir`, because the files would belong to root. [AI agents](/agents) has the directory for each agent and how to use it.

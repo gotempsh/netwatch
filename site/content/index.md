@@ -23,6 +23,7 @@ That installs a systemd service (a launchd daemon on macOS) in **observe** mode:
 - **Proposes or enforces bans.** Observe mode turns every ban into a proposal you approve. Enforce mode bans automatically with escalating TTLs. Infrastructure you depend on (gateway, VPN peers, Cloudflare) is never banned.
 - **Explains itself.** Insights turn the data into concrete advice, each with the command that fixes it.
 - **Optionally uses a model.** Any OpenAI-compatible endpoint, local or hosted, reviews the sources the rules can't settle and compiles ban policies written in plain English. It is built for cheap models and small token budgets.
+- **Works with your coding agent.** `netwatch skill --install` teaches Claude Code, Codex, Cursor and other agents to investigate with netwatch and to ask before banning anything. See [AI agents](/agents).
 
 ## How it works
 

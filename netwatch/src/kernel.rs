@@ -8,7 +8,7 @@ use aya::{
     maps::{Array, HashMap, LpmTrie, MapData, PerCpuArray, RingBuf, lpm_trie::Key},
     programs::{
         SchedClassifier, TcAttachType, TracePoint, Xdp, XdpMode,
-        tc::{SchedClassifierLinkId, qdisc_add_clsact},
+        tc::{SchedClassifierLinkId, qdisc_add_clsact, qdisc_detach_program},
     },
 };
 use ipnet::IpNet;
@@ -60,6 +60,8 @@ pub struct Kernel {
     /// Tracepoints that attached, by name.
     pub tracepoints: Vec<(String, bool)>,
     pub attached: BTreeMap<String, Attached>,
+    /// Set by `shutdown`: nothing attaches again on the way out.
+    stopped: bool,
     flows: HashMap<MapData, FlowKey, FlowStats>,
     health: HashMap<MapData, SockKey, TcpHealth>,
     ifaces: HashMap<MapData, u32, IfConfig>,
@@ -184,6 +186,7 @@ impl Kernel {
             flows_ok,
             tracepoints,
             attached: BTreeMap::new(),
+            stopped: false,
             ebpf,
         };
         Ok((kernel, rings))
@@ -222,13 +225,31 @@ impl Kernel {
         Ok(())
     }
 
-    /// Nothing to undo: the programs detach when the process exits.
-    pub fn shutdown(&mut self) {}
+    /// XDP and TCX links (Linux 6.6 and newer) detach when the process exits.
+    /// TC filters attached over netlink stay on the interface and would keep
+    /// running, one more copy after every restart, so they come off here.
+    pub fn shutdown(&mut self) {
+        self.stopped = true;
+        for (name, a) in std::mem::take(&mut self.attached) {
+            if let Some((li, lo)) = a.links {
+                let res = self
+                    .classifier("nw_flow_in")
+                    .and_then(|p| Ok(p.detach(li)?))
+                    .and(
+                        self.classifier("nw_flow_out")
+                            .and_then(|p| Ok(p.detach(lo)?)),
+                    );
+                if let Err(e) = res {
+                    log::warn!("detaching the flow programs from {name}: {e:#}");
+                }
+            }
+        }
+    }
 
     /// Attaches the flow programs to every wanted interface and detaches from
     /// the ones that went away (Docker bridges come and go).
     pub fn sync_interfaces(&mut self, want: &[WantIf]) {
-        if !self.flows_ok {
+        if !self.flows_ok || self.stopped {
             return;
         }
         let gone: Vec<String> = self
@@ -298,6 +319,14 @@ impl Kernel {
     ) -> anyhow::Result<(SchedClassifierLinkId, SchedClassifierLinkId)> {
         // Needed for the netlink path on kernels before 6.6; harmless with TCX.
         let _ = qdisc_add_clsact(iface);
+        // A netwatch that was killed or crashed left its netlink filters here;
+        // with TCX there are none to find.
+        for (attach, name) in [
+            (TcAttachType::Ingress, "nw_flow_in"),
+            (TcAttachType::Egress, "nw_flow_out"),
+        ] {
+            let _ = qdisc_detach_program(iface, attach, name);
+        }
         let li = self
             .classifier("nw_flow_in")?
             .attach(iface, TcAttachType::Ingress)?;

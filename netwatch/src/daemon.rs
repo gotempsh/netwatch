@@ -240,7 +240,7 @@ async fn serve(app: &Arc<App>, cfg: &Config, rings: crate::kernel::Rings) -> any
     if cfg!(target_os = "macos") {
         log::info!("shutting down; removing the pf rules");
     } else {
-        log::info!("shutting down; XDP and TC programs detach with the process");
+        log::info!("shutting down; detaching the XDP and TC programs");
     }
     app.kernel.lock().unwrap().shutdown();
     // Keep what was still open: long-lived connections only reach the store when they end.

@@ -573,6 +573,31 @@ mod tests {
     }
 
     #[test]
+    fn what_a_timed_out_command_started_is_killed_too() {
+        // A wrapper without `exec`: the shell waits on a child that hangs.
+        let pidfile = std::env::temp_dir().join(format!("netwatch-rwt-{}", std::process::id()));
+        let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
+        let r = run_with_timeout(sh(&script), std::time::Duration::from_millis(500));
+        assert_eq!(r, Err(()));
+        let pid: libc::pid_t = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        std::fs::remove_file(&pidfile).unwrap();
+        // Killed, then reaped by init: gone within a moment.
+        // SAFETY: signal 0 only checks that the process exists.
+        let gone = (0..100).any(|_| {
+            let alive = unsafe { libc::kill(pid, 0) } == 0;
+            if alive {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            !alive
+        });
+        assert!(gone, "the hung grandchild {pid} is still running");
+    }
+
+    #[test]
     fn output_failure_and_missing_commands() {
         let t = std::time::Duration::from_secs(10);
         assert_eq!(run_with_timeout(sh("echo hi"), t), Ok(Some("hi\n".into())));

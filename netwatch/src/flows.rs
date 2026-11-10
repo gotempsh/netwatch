@@ -184,8 +184,9 @@ impl Flow {
         }
         match self.tcp_state {
             Some(s) => tcp_state_name(s).into(),
-            // No socket here took it and nothing ever came back: a SYN to a
-            // closed port that a firewall (or macOS stealth mode) dropped.
+            // No socket here took it and no TCP packet came back: a SYN to a
+            // closed port that a firewall (or macOS stealth mode) dropped, or
+            // refused with ICMP, which is a flow of its own and isn't seen here.
             None if (self.flags_in | self.flags_out) & TCP_ACK == 0 => "unanswered".into(),
             None => "established".into(),
         }
@@ -2134,7 +2135,8 @@ mod tests {
             t.active[&k].state()
         };
         const SYN: u8 = 0x02;
-        // Dropped by a firewall, or by macOS stealth mode.
+        // Dropped by a firewall or macOS stealth mode, or refused with ICMP
+        // (REJECT): either way no TCP packet answered on this flow.
         assert_eq!(state(SYN, 0), "unanswered");
         // Refused by the kernel.
         assert_eq!(state(SYN, TCP_RST | TCP_ACK), "closed");

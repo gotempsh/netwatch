@@ -443,7 +443,7 @@ pub async fn run(given: &Path, check: bool, auto: Option<&str>) -> anyhow::Resul
     let result = install(&unpacked, config);
     let failure = match &result {
         Err(e) => Some(format!("its installer didn't run: {e}")),
-        Ok(out) if !out.status.success() => Some(tail(out, 10)),
+        Ok(out) if !out.status.success() => Some(format!("its installer said:\n{}", tail(out, 10))),
         Ok(_) if !wait_for(cfg, &latest).await => Some(format!(
             "the daemon didn't answer with version {latest} within {}s",
             START_WAIT.as_secs()

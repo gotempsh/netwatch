@@ -491,7 +491,7 @@ impl App {
             };
             let guard = match &mitigation {
                 Some(m) => format!("They didn't reach the TCP stack: {m}."),
-                None => "They reached the kernel: make sure it is patched, or set drop_syn_ip_options = true."
+                None => "They reached the kernel: make sure it is patched, or set drop_syn_ip_options = true in netwatch.toml and restart netwatch."
                     .to_string(),
             };
             log::warn!(

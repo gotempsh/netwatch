@@ -325,8 +325,8 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             ),
             format!(
                 "Linux kernel TCP use-after-free, CVSS 9.8: it fires during the handshake, before any application \
-                 sees the connection. {kernel_note} Until then, set drop_syn_ip_options = true or add the nftables \
-                 rule below. Senders: {}.",
+                 sees the connection. {kernel_note} Until then, set drop_syn_ip_options = true in netwatch.toml \
+                 and restart netwatch, or add the nftables rule below (it needs nft). Senders: {}.",
                 shown.join(", ")
             ),
             Some(NFT_DROP_IPOPT_SYN.into()),
@@ -347,8 +347,8 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             "The kernel may be exposed to CVE-2026-98432".into(),
             format!(
                 "A crafted TCP SYN with IPv4 options can crash or take over an unpatched kernel through any \
-                 listening port. {kernel_note} Until then, set drop_syn_ip_options = true or add the nftables rule \
-                 below."
+                 listening port. {kernel_note} Until then, set drop_syn_ip_options = true in netwatch.toml and \
+                 restart netwatch, or add the nftables rule below (it needs nft)."
             ),
             Some(NFT_DROP_IPOPT_SYN.into()),
         ),

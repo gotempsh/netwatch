@@ -179,6 +179,21 @@ struct SourcesQuery {
     port: Option<u16>,
 }
 
+/// The sources search: "as174" is exactly AS174 (not AS1740 or AS17488); anything
+/// else is a substring of the address, the location ("US AS174 Org") or the country.
+/// `n` is lowercase.
+fn source_matches(s: &IpState, n: &str) -> bool {
+    if let Some(asn) = n.strip_prefix("as").and_then(|d| d.parse::<u32>().ok()) {
+        return s.geo.asn == Some(asn);
+    }
+    s.ip.to_string().contains(n)
+        || s.location.to_lowercase().contains(n)
+        || s.geo
+            .country
+            .as_deref()
+            .is_some_and(|c| c.to_lowercase().contains(n))
+}
+
 async fn sources(State(app): AppState, Query(q): Query<SourcesQuery>) -> Json<Vec<SourceView>> {
     let now = now_unix();
     let e = app.engine.lock().unwrap();
@@ -197,16 +212,7 @@ async fn sources(State(app): AppState, Query(q): Query<SourcesQuery>) -> Json<Ve
         .filter(|s| all || interesting(s))
         .filter(|s| !flagged || s.score > 0)
         .filter(|s| q.port.is_none_or(|p| s.ports.values().any(|t| t.port == p)))
-        .filter(|s| {
-            needle.as_ref().is_none_or(|n| {
-                s.ip.to_string().contains(n.as_str())
-                    || s.location.to_lowercase().contains(n.as_str())
-                    || s.geo
-                        .country
-                        .as_deref()
-                        .is_some_and(|c| c.to_lowercase().contains(n.as_str()))
-            })
-        })
+        .filter(|s| needle.as_ref().is_none_or(|n| source_matches(s, n)))
         .collect();
     let key = |s: &IpState| -> f64 {
         match q.sort.as_deref().unwrap_or("score") {
@@ -258,9 +264,10 @@ struct BanView {
 }
 
 /// Whether the sensor drops banned packets: `drop_banned`, and on macOS only once
-/// pf has loaded the anchor ("capture" alone counts bans without dropping them).
+/// pf has loaded the anchor and its ruleset evaluates it. "capture" (no pf) and
+/// "capture+pf-unreferenced" (pf.conf lacks the anchor) count bans without dropping.
 fn bans_drop(drop_banned: bool, attach_mode: &str) -> bool {
-    drop_banned && attach_mode != "capture"
+    drop_banned && !matches!(attach_mode, "capture" | "capture+pf-unreferenced")
 }
 
 fn ban_view(e: &Engine, row: BanRow, drops: bool) -> BanView {
@@ -1071,6 +1078,7 @@ async fn destinations(
         "bytes" => rows.sort_by_key(|d| std::cmp::Reverse(d.bytes_in + d.bytes_out)),
         "last" => rows.sort_by_key(|d| std::cmp::Reverse(d.last_seen)),
         "first" => rows.sort_by_key(|d| std::cmp::Reverse(d.first_seen)),
+        "failed" => rows.sort_by_key(|d| std::cmp::Reverse(d.failed)),
         _ => rows.sort_by_key(|d| std::cmp::Reverse(d.flows)),
     }
     let matched = rows.len();
@@ -1320,7 +1328,7 @@ fn fill_lanes(
     for r in rows {
         let alerts = store.alerts(since, Some(&r.ip), 50)?;
         let proposals = store.proposals(false, Some(&r.ip), 20)?;
-        let ssh = store.ssh_events(since, Some(&r.ip), 500)?;
+        let ssh = store.ssh_logins(since, Some(&r.ip), 50)?;
         r.events = timeline_events(
             &alerts,
             &proposals,
@@ -1423,8 +1431,10 @@ struct GraphHalf {
 fn flow_failure(f: &FlowRow) -> Option<&'static str> {
     match f.state.as_str() {
         "unanswered" => Some("unanswered"),
-        // Same split as the connect_failed event: a quick failure is a refusal.
-        "failed" if f.connect_ms.is_some_and(|ms| ms >= 3_000.0) => Some("timed out"),
+        // Same 3 s split as the connect_failed event. connect_ms is only set when the
+        // handshake completes, so the time from the SYN to the last packet stands in:
+        // a refusal ends at once, a timeout keeps retransmitting the SYN.
+        "failed" if f.last_seen - f.first_seen >= 3 => Some("timed out"),
         "failed" => Some("refused"),
         _ => None,
     }
@@ -1883,11 +1893,39 @@ mod tests {
     /// A dry run (`drop_banned = false`), or macOS before pf took the anchor, matches
     /// banned packets without dropping them; the API must not call them dropped.
     #[test]
+    fn an_asn_search_matches_that_network_only() {
+        let mut e = test_engine();
+        for (ip, asn) in [
+            ("203.0.113.1", 174),
+            ("203.0.113.2", 1740),
+            ("203.0.113.3", 17488),
+        ] {
+            let st = e.state(ip.parse().unwrap(), 0);
+            st.geo.asn = Some(asn);
+            st.location = format!("US AS{asn} Example");
+        }
+        let hits = |n: &str| {
+            let mut v: Vec<_> = e
+                .states
+                .values()
+                .filter(|s| source_matches(s, n))
+                .map(|s| s.ip.to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(hits("as174"), ["203.0.113.1"]);
+        assert_eq!(hits("203.0.113.2"), ["203.0.113.2"]);
+        assert_eq!(hits("example").len(), 3);
+    }
+
+    #[test]
     fn bans_drop_only_when_the_sensor_drops() {
         assert!(bans_drop(true, "driver"));
         assert!(bans_drop(true, "skb"));
         assert!(bans_drop(true, "capture+pf"));
         assert!(!bans_drop(true, "capture"));
+        assert!(!bans_drop(true, "capture+pf-unreferenced"));
         assert!(!bans_drop(false, "driver"));
         assert!(!bans_drop(false, "capture+pf"));
     }
@@ -2034,6 +2072,24 @@ mod tests {
             )
             .unwrap();
 
+        // One accepted login, then more failures than any page of SSH events holds.
+        let ssh = |ts: i64, kind: &str, user: &str| crate::store::SshEventRow {
+            ts,
+            kind: kind.into(),
+            user: Some(user.into()),
+            ip: "203.0.113.7".into(),
+            method: Some("password".into()),
+            location: String::new(),
+        };
+        store
+            .add_ssh_event(&ssh(now - 3_000, "accepted", "deploy"))
+            .unwrap();
+        for i in 0..600 {
+            store
+                .add_ssh_event(&ssh(now - 2_900 + i, "failed", "root"))
+                .unwrap();
+        }
+
         let (mut rows, total) = pick_lanes(&e, 20, true, now - 86_400);
         fill_lanes(&store, &mut rows, now - 86_400).unwrap();
         let ips: Vec<_> = rows.iter().map(|r| r.ip.as_str()).collect();
@@ -2043,6 +2099,12 @@ mod tests {
         assert_eq!(rows[0].hours.len(), 1);
         assert_eq!(rows[0].hours[0].in_packets, 1_200);
         assert_eq!(rows[0].events[0].kind, "finding");
+        assert!(
+            rows[0]
+                .events
+                .iter()
+                .any(|e| e.kind == "login" && e.ts == now - 3_000)
+        );
         assert_eq!(rows[0].status, "watching");
         assert_eq!(rows[1].status, "ban proposed");
         let (one, total) = pick_lanes(&e, 1, true, now - 86_400);
@@ -2136,13 +2198,16 @@ mod tests {
     fn graph_shows_failing_programs_first_and_folds_the_rest() {
         let hostile = HashSet::new();
         let mut rows = Vec::new();
-        for ms in [12.0, 15.0, 9_000.0] {
+        // Seconds from the SYN to the last packet: two refusals, one timeout. A failed
+        // flow never has connect_ms, as the sensor only sets it on a handshake.
+        for secs in [0, 0, 21] {
             rows.push(flow("out", "192.0.2.50", |f| {
                 f.rport = 5432;
                 f.unit = Some("pg-backup".into());
                 f.remote_name = Some("db.backup.example.com".into());
                 f.state = "failed".into();
-                f.connect_ms = Some(ms);
+                f.first_seen = 1_000;
+                f.last_seen = 1_000 + secs;
                 f.bytes_in = 0;
                 f.bytes_out = 0;
             }));
@@ -2178,6 +2243,7 @@ mod tests {
             .iter()
             .find(|n| n.key == "dest:nas.tail1234.ts.net");
         assert!(nas.is_none_or(|n| n.label == "nas"));
+        assert_eq!(flow_failure(&rows[0]), Some("refused"));
         assert_eq!(flow_failure(&rows[2]), Some("timed out"));
         assert_eq!(short_name("nas.tail1234.ts.net"), "nas");
         assert_eq!(short_name("github.com"), "github.com");

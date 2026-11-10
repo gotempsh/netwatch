@@ -140,7 +140,9 @@ impl Source {
 
 pub struct Kernel {
     shared: Arc<Shared>,
-    /// "capture" (bans counted only) or "capture+pf" (bans dropped by pf).
+    /// "capture" (bans counted only), "capture+pf" (bans dropped by pf), or
+    /// "capture+pf-unreferenced" (pf runs, but pf.conf never evaluates the anchor, so
+    /// bans are only counted).
     pub attach_mode: &'static str,
     pub flows_ok: bool,
     /// Kernel features the sensor relies on, by name.
@@ -325,8 +327,12 @@ impl Kernel {
                             super::pf::ANCHOR
                         );
                     }
+                    self.attach_mode = if pf.unreferenced {
+                        "capture+pf-unreferenced"
+                    } else {
+                        "capture+pf"
+                    };
                     self.pf = Some(pf);
-                    self.attach_mode = "capture+pf";
                 }
                 Err(e) => log::warn!("bans will be counted but not dropped: {e:#}"),
             }

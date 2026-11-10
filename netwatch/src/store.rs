@@ -1297,11 +1297,32 @@ impl Store {
         ip: Option<&str>,
         limit: u32,
     ) -> anyhow::Result<Vec<SshEventRow>> {
+        self.ssh_query(since, ip, None, limit)
+    }
+
+    /// Accepted logins only, so failures after a login can't push it past the limit.
+    pub fn ssh_logins(
+        &self,
+        since: i64,
+        ip: Option<&str>,
+        limit: u32,
+    ) -> anyhow::Result<Vec<SshEventRow>> {
+        self.ssh_query(since, ip, Some("accepted"), limit)
+    }
+
+    fn ssh_query(
+        &self,
+        since: i64,
+        ip: Option<&str>,
+        kind: Option<&str>,
+        limit: u32,
+    ) -> anyhow::Result<Vec<SshEventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT ts, kind, user, ip, method, location FROM ssh_events
-             WHERE ts>=?1 AND (?2 IS NULL OR ip=?2) ORDER BY ts DESC LIMIT ?3",
+             WHERE ts>=?1 AND (?2 IS NULL OR ip=?2) AND (?3 IS NULL OR kind=?3)
+             ORDER BY ts DESC LIMIT ?4",
         )?;
-        let rows = stmt.query_map(params![since, ip, limit], |r| {
+        let rows = stmt.query_map(params![since, ip, kind, limit], |r| {
             Ok(SshEventRow {
                 ts: r.get(0)?,
                 kind: r.get(1)?,

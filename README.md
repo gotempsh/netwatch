@@ -148,7 +148,7 @@ To build from source instead, you need:
 
 - a Rust toolchain (stable and nightly with `rust-src`);
 - [`bpf-linker`](https://github.com/aya-rs/bpf-linker);
-- Node 20 or newer, to build the UI.
+- Node 22.12 or newer (or 20.19 or newer on Node 20), to build the UI. Other versions, Node 21 included, skip the bundler's native binding and the UI build fails with "Cannot find native binding".
 
 ```shell
 rustup toolchain install stable
@@ -169,7 +169,9 @@ sudo scripts/install.sh
 
 To use MaxMind GeoLite2 instead, point `geoip_city` / `geoip_asn` at those `.mmdb` files. Changed files are reloaded automatically.
 
-XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode otherwise. On some drivers (igb, ixgbe, …), attaching resets the link for about 3 seconds.
+XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode (shown as `skb`) otherwise. On some drivers (igb, ixgbe, …), attaching resets the link for about 3 seconds.
+
+To remove netwatch, follow [Uninstalling](https://gotempsh.github.io/netwatch/installation/#uninstalling).
 
 ### Docker
 

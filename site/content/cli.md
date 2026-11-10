@@ -109,7 +109,7 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 | `netwatch update --auto on\|off` | **root**: install new releases daily, or stop |
 | `netwatch default-config` | print the default configuration |
 
-On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`.
+On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
 
 ## Agent skill
 

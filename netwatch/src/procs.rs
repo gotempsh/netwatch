@@ -138,12 +138,22 @@ pub fn socket_inodes() -> HashMap<u64, u32> {
                 if let Some(inode) = t.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']'))
                     && let Ok(i) = inode.parse()
                 {
-                    out.entry(i).or_insert(pid);
+                    out.entry(i)
+                        .and_modify(|held| *held = sharer(*held, pid))
+                        .or_insert(pid);
                 }
             }
         }
     }
     out
+}
+
+/// Which of two processes holding the same socket owns it. With socket
+/// activation (sshd on Ubuntu 24.04) systemd keeps the listener open after
+/// handing it to the service, and the service is what answers.
+#[cfg(target_os = "linux")]
+fn sharer(held: u32, pid: u32) -> u32 {
+    if held == 1 { pid } else { held }
 }
 
 /// Inode of a network namespace link such as /proc/1/ns/net ("net:[4026531840]").
@@ -375,6 +385,16 @@ mod tests {
             parse_proc_net(tcp6, PROTO_TCP)[0].local.to_string(),
             "192.168.1.8"
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_socket_activated_listener_belongs_to_the_service() {
+        // /proc lists systemd first; sshd holds the same listener.
+        assert_eq!(sharer(1, 894), 894);
+        assert_eq!(sharer(894, 1), 894);
+        // Two services sharing a socket (a forking server): the first one stays.
+        assert_eq!(sharer(700, 701), 700);
     }
 
     #[test]

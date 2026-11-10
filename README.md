@@ -98,7 +98,7 @@ The screenshots use the UI's demo data. To click through it without installing a
 - **Connections.** TC programs keep a table of every flow on the primary interface, and on Tailscale, WireGuard and Docker interfaces. Each flow records:
   - direction (who connected to whom), bytes, packets and rates each way;
   - TCP state, connect latency, retransmits and resets (`unanswered` for a SYN no TCP packet answered: a probe a firewall dropped or refused with ICMP);
-  - the owning process, with its systemd service or Docker container. This comes from the TCP tracepoints and a /proc scan every 15 s, and covers UDP, listeners and connections opened before netwatch started.
+  - the owning process, with its systemd service or Docker container. This comes from the TCP tracepoints and a /proc scan every 15 s, and covers UDP, listeners and connections opened before netwatch started. A socket systemd opened for a service (socket activation, as for sshd on Ubuntu 24.04) belongs to the service.
   - application metadata parsed from the first payload in each direction: TLS SNI and ALPN, HTTP method, host, path, user agent and status, and SSH banners;
   - the DNS name the remote address was resolved from.
 

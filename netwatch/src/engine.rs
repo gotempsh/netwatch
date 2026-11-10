@@ -637,7 +637,16 @@ impl Engine {
         let public = is_public(ev.ip);
         match ev.kind {
             "failed" | "invalid_user" => {
-                if ev.kind == "failed" {
+                // A server that only takes keys logs "Invalid user" and never
+                // "Failed password", so that line is the failed attempt. With
+                // passwords, sshd logs it once per connection before that
+                // connection's "Failed password for invalid user" lines.
+                let counted = ev.kind == "invalid_user"
+                    || ev
+                        .user
+                        .as_ref()
+                        .is_none_or(|u| !st.ssh.invalid_users.contains(u));
+                if counted {
                     st.ssh.failed.push_back(ev.ts);
                     st.ssh.failed_total += 1;
                     while st.ssh.failed.len() > 1000 {
@@ -1514,5 +1523,46 @@ mod tests {
         }
         e.observe_probes(hits(SCANNER, &CLIENT_PORTS, 1), now_unix());
         assert_eq!(kinds(&mut e, SCANNER), ["closed_probe"]);
+    }
+
+    /// sshd's log of one brute-force run, as journald hands it over.
+    fn ssh_log(e: &mut Engine, lines: &[&str]) -> u64 {
+        let now = now_unix();
+        for l in lines {
+            let ev = crate::ssh::parse(now, false, l).unwrap();
+            e.observe_ssh(&ev, &[]);
+        }
+        let ip: IpAddr = SCANNER.parse().unwrap();
+        e.states[&ip].ssh_failed_within(now, 3600)
+    }
+
+    #[test]
+    fn counts_failed_ssh_attempts_on_servers_without_passwords() {
+        // Keys only: sshd never logs "Failed password", one "Invalid user" per try.
+        let mut e = engine();
+        let n = ssh_log(
+            &mut e,
+            &[
+                "Invalid user admin from 203.0.113.9 port 40001",
+                "Invalid user oracle from 203.0.113.9 port 40002",
+                "Connection closed by authenticating user root 203.0.113.9 port 40003 [preauth]",
+            ],
+        );
+        assert_eq!(n, 2);
+
+        // Passwords: each connection logs "Invalid user" once, then a line per
+        // password it tried; existing users only get the "Failed password" lines.
+        let mut e = engine();
+        let n = ssh_log(
+            &mut e,
+            &[
+                "Invalid user admin from 203.0.113.9 port 40001",
+                "Failed password for invalid user admin from 203.0.113.9 port 40001 ssh2",
+                "Failed password for invalid user admin from 203.0.113.9 port 40001 ssh2",
+                "Failed password for root from 203.0.113.9 port 40002 ssh2",
+                "Failed password for root from 203.0.113.9 port 40002 ssh2",
+            ],
+        );
+        assert_eq!(n, 3);
     }
 }

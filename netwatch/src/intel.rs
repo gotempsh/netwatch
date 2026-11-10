@@ -292,7 +292,16 @@ pub async fn cloudflare_ranges() -> Vec<IpNet> {
 /// when its daemon or app isn't running, must not hold it up.
 const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn run(cmd: &str, args: &[&str]) -> Option<String> {
+/// What a discovery command said.
+enum Answer {
+    Output(String),
+    /// Not installed, not running, or it failed: it has no addresses to give.
+    Nothing,
+    /// Still running at the deadline: whatever it would say is unknown.
+    TimedOut,
+}
+
+fn run(cmd: &str, args: &[&str]) -> Answer {
     // The Mac App Store and standalone Tailscale apps keep their CLI inside the bundle.
     #[cfg(target_os = "macos")]
     let cmd = match cmd {
@@ -304,14 +313,15 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
     let mut c = crate::host::command(cmd);
     c.args(args);
     match run_with_timeout(c, RUN_TIMEOUT) {
-        Ok(out) => out,
+        Ok(Some(out)) => Answer::Output(out),
+        Ok(None) => Answer::Nothing,
         Err(()) => {
             log::warn!(
-                "`{cmd} {}` didn't answer within {}s, so its addresses aren't allowlisted until the next try in 10 minutes",
+                "`{cmd} {}` didn't answer within {}s; trying again in 10 minutes",
                 args.join(" "),
                 RUN_TIMEOUT.as_secs()
             );
-            None
+            Answer::TimedOut
         }
     }
 }
@@ -376,69 +386,150 @@ fn endpoint_ip(s: &str) -> Option<IpAddr> {
     s.parse::<std::net::SocketAddr>().ok().map(|a| a.ip())
 }
 
-/// Addresses discovered from the running system that must never be banned.
-pub fn discover_peers(cfg: &Config) -> BTreeSet<IpNet> {
-    let mut out = BTreeSet::new();
-    if cfg.allow_wireguard_peers {
-        // Output: <iface>\t<peer pubkey>\t<endpoint>
-        if let Some(text) = run("wg", &["show", "all", "endpoints"]) {
-            for line in text.lines() {
-                if let Some(ip) = line.split('\t').nth(2).and_then(endpoint_ip) {
-                    out.insert(IpNet::from(ip));
-                }
+/// What a source last gave, and how many refreshes in a row it has timed out since.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct Found {
+    addrs: BTreeSet<IpNet>,
+    timeouts: u32,
+}
+
+/// Addresses discovered from the running system that must never be banned,
+/// by source ("wireguard", "tailscale", ...).
+pub type Peers = std::collections::BTreeMap<&'static str, Found>;
+
+/// Refreshes in a row a timed-out source keeps its last addresses for.
+/// A stopped Tailscale hangs rather than failing, so without a limit its
+/// former peers would stay exempt from bans until netwatch restarts.
+const KEEP_THROUGH_TIMEOUTS: u32 = 2;
+
+pub fn all_peers(peers: &Peers) -> impl Iterator<Item = IpNet> + '_ {
+    peers.values().flat_map(|f| f.addrs.iter().copied())
+}
+
+/// A source's public addresses from its answer. A command that timed out
+/// keeps what it gave last time for a couple of refreshes: a slow `tailscale`
+/// shouldn't take its peers off the allowlist, but one that keeps hanging
+/// (its daemon stopped) lets them go.
+fn record(
+    out: &mut Peers,
+    previous: &Peers,
+    source: &'static str,
+    answer: Answer,
+    parse: impl Fn(&str) -> Vec<IpAddr>,
+) {
+    let found = match answer {
+        Answer::Output(text) => Found {
+            addrs: parse(&text)
+                .into_iter()
+                .filter(|ip| crate::util::is_public(*ip))
+                .map(IpNet::from)
+                .collect(),
+            timeouts: 0,
+        },
+        Answer::Nothing => Found::default(),
+        Answer::TimedOut => {
+            let last = previous.get(source).cloned().unwrap_or_default();
+            let timeouts = last.timeouts.saturating_add(1);
+            if timeouts == KEEP_THROUGH_TIMEOUTS + 1 && !last.addrs.is_empty() {
+                log::warn!(
+                    "{source} discovery has timed out {timeouts} times in a row; its {} addresses are no longer allowlisted",
+                    last.addrs.len()
+                );
+            }
+            Found {
+                addrs: if timeouts <= KEEP_THROUGH_TIMEOUTS {
+                    last.addrs
+                } else {
+                    BTreeSet::new()
+                },
+                timeouts,
             }
         }
+    };
+    out.insert(source, found);
+}
+
+/// `wg show all endpoints`: `<iface>\t<peer pubkey>\t<endpoint>`.
+fn wireguard_endpoints(text: &str) -> Vec<IpAddr> {
+    text.lines()
+        .filter_map(|l| l.split('\t').nth(2).and_then(endpoint_ip))
+        .collect()
+}
+
+/// `tailscale status --json`: every peer's known and current endpoints.
+fn tailscale_peers(text: &str) -> Vec<IpAddr> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(peers) = json["Peer"].as_object() else {
+        return Vec::new();
+    };
+    peers
+        .values()
+        .flat_map(|peer| {
+            let addrs = peer["Addrs"].as_array().into_iter().flatten();
+            addrs.chain(std::iter::once(&peer["CurAddr"]))
+        })
+        .filter_map(|a| a.as_str().and_then(endpoint_ip))
+        .collect()
+}
+
+/// `tailscale debug derp-map`: DERP relays and STUN servers.
+fn derp_nodes(text: &str) -> Vec<IpAddr> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(regions) = json["Regions"].as_object() else {
+        return Vec::new();
+    };
+    regions
+        .values()
+        .flat_map(|r| r["Nodes"].as_array().into_iter().flatten())
+        .flat_map(|node| ["IPv4", "IPv6"].map(|k| node[k].as_str()))
+        .filter_map(|s| s?.parse::<IpAddr>().ok())
+        .collect()
+}
+
+pub fn discover_peers(cfg: &Config, previous: &Peers) -> Peers {
+    let mut out = Peers::new();
+    if cfg.allow_wireguard_peers {
+        let answer = run("wg", &["show", "all", "endpoints"]);
+        record(&mut out, previous, "wireguard", answer, wireguard_endpoints);
     }
     if cfg.allow_tailscale_peers {
-        if let Some(json) = run("tailscale", &["status", "--json"])
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            && let Some(peers) = json["Peer"].as_object()
-        {
-            for peer in peers.values() {
-                let addrs = peer["Addrs"].as_array().into_iter().flatten();
-                for a in addrs.chain(std::iter::once(&peer["CurAddr"])) {
-                    if let Some(ip) = a.as_str().and_then(endpoint_ip) {
-                        out.insert(IpNet::from(ip));
-                    }
-                }
-            }
-        }
-        // DERP relays and STUN servers.
-        if let Some(json) = run("tailscale", &["debug", "derp-map"])
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            && let Some(regions) = json["Regions"].as_object()
-        {
-            for node in regions
-                .values()
-                .flat_map(|r| r["Nodes"].as_array().into_iter().flatten())
-            {
-                for k in ["IPv4", "IPv6"] {
-                    if let Some(ip) = node[k].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
-                        out.insert(IpNet::from(ip));
-                    }
-                }
-            }
-        }
+        let answer = run("tailscale", &["status", "--json"]);
+        record(&mut out, previous, "tailscale", answer, tailscale_peers);
+        let answer = run("tailscale", &["debug", "derp-map"]);
+        record(&mut out, previous, "derp", answer, derp_nodes);
     }
     // The default gateway.
     #[cfg(target_os = "macos")]
-    if let Some(gw) =
-        run("route", &["-n", "get", "default"]).and_then(|t| route_field(&t, "gateway"))
-        && let Ok(ip) = gw.parse::<IpAddr>()
     {
-        out.insert(IpNet::from(ip));
+        let answer = run("route", &["-n", "get", "default"]);
+        record(&mut out, previous, "gateway", answer, |t| {
+            route_field(t, "gateway")
+                .and_then(|g| g.parse().ok())
+                .into_iter()
+                .collect()
+        });
     }
     #[cfg(target_os = "linux")]
-    if let Some(text) = run("ip", &["-j", "route", "show", "default"])
-        && let Ok(serde_json::Value::Array(routes)) = serde_json::from_str(&text)
     {
-        for r in routes {
-            if let Some(ip) = r["gateway"].as_str().and_then(|s| s.parse::<IpAddr>().ok()) {
-                out.insert(IpNet::from(ip));
-            }
-        }
+        let answer = run("ip", &["-j", "route", "show", "default"]);
+        record(
+            &mut out,
+            previous,
+            "gateway",
+            answer,
+            |t| match serde_json::from_str(t) {
+                Ok(serde_json::Value::Array(routes)) => routes
+                    .iter()
+                    .filter_map(|r| r["gateway"].as_str()?.parse().ok())
+                    .collect(),
+                _ => Vec::new(),
+            },
+        );
     }
-    out.retain(|n| crate::util::is_public(n.addr()));
     out
 }
 
@@ -550,6 +641,56 @@ mod tests {
         let mut c = std::process::Command::new("sh");
         c.args(["-c", script]);
         c
+    }
+
+    #[test]
+    fn a_timed_out_source_keeps_its_last_addresses_for_a_while() {
+        use super::{Answer, KEEP_THROUGH_TIMEOUTS, Peers, all_peers, record, tailscale_peers};
+        use std::collections::BTreeSet;
+        let ip = |s: &str| ipnet::IpNet::from(s.parse::<std::net::IpAddr>().unwrap());
+        let status = r#"{"Peer":{"a":{"Addrs":["203.0.113.5:41641","10.0.0.2:41641"],"CurAddr":"198.51.100.7:41641"}}}"#;
+        let refresh = |previous: &Peers, answer| {
+            let mut out = Peers::new();
+            record(&mut out, previous, "tailscale", answer, tailscale_peers);
+            out
+        };
+        let addrs = |p: &Peers| all_peers(p).collect::<BTreeSet<_>>();
+        let first = refresh(&Peers::new(), Answer::Output(status.into()));
+        // Private addresses never go on the list.
+        let known: BTreeSet<_> = [ip("198.51.100.7"), ip("203.0.113.5")].into();
+        assert_eq!(addrs(&first), known);
+
+        // A slow refresh or two keeps them.
+        let mut peers = first.clone();
+        for _ in 0..KEEP_THROUGH_TIMEOUTS {
+            peers = refresh(&peers, Answer::TimedOut);
+            assert_eq!(addrs(&peers), known);
+        }
+        // One that keeps hanging, as a stopped Tailscale does, lets them go.
+        peers = refresh(&peers, Answer::TimedOut);
+        assert!(addrs(&peers).is_empty());
+        peers = refresh(&peers, Answer::TimedOut);
+        assert!(addrs(&peers).is_empty());
+        // An answer starts the count again.
+        peers = refresh(&peers, Answer::Output(status.into()));
+        peers = refresh(&peers, Answer::TimedOut);
+        assert_eq!(addrs(&peers), known);
+
+        // Failed or not installed: there are no peers to keep.
+        assert!(addrs(&refresh(&first, Answer::Nothing)).is_empty());
+    }
+
+    #[test]
+    fn reads_wireguard_and_derp_addresses() {
+        use super::{derp_nodes, wireguard_endpoints};
+        let wg = "wg0\tKEY=\t203.0.113.9:51820\nwg0\tKEY2=\t(none)\n";
+        assert_eq!(
+            wireguard_endpoints(wg),
+            vec!["203.0.113.9".parse::<std::net::IpAddr>().unwrap()]
+        );
+        let derp = r#"{"Regions":{"1":{"Nodes":[{"IPv4":"192.0.2.1","IPv6":"2001:db8::1"}]}}}"#;
+        assert_eq!(derp_nodes(derp).len(), 2);
+        assert!(derp_nodes("not json").is_empty());
     }
 
     #[test]

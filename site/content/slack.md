@@ -4,7 +4,7 @@ nav: Slack
 description: Post new ban proposals, possible compromises and new public listeners to a Slack incoming webhook.
 ---
 
-netwatch can post to a Slack [incoming webhook](https://api.slack.com/messaging/webhooks). It is outbound only: nothing in Slack can change netwatch, so approving a ban stays a CLI action.
+netwatch can post to a Slack [incoming webhook](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/). It is outbound only: nothing in Slack can change netwatch, so approving a ban stays a CLI action.
 
 ```toml
 [slack]

@@ -57,6 +57,10 @@ The demo is the UI built with `--mode demo`: mock data, no API calls, and a bann
 
 Pages are Markdown in `site/content/`. Each one is also published as `<page>.md`, and `llms.txt` and `llms-full.txt` list them for agents.
 
+## Contributing
+
+[CONTRIBUTING.md](https://github.com/gotempsh/netwatch/blob/main/CONTRIBUTING.md) lists the checks CI runs, the commit format and how to file a bug. Report security problems as [SECURITY.md](https://github.com/gotempsh/netwatch/blob/main/SECURITY.md) describes, not in a public issue.
+
 ## License
 
 The userspace code is MIT or Apache-2.0, at your option. The eBPF code is GPL-2.0, MIT or Apache-2.0, at your option. See the `LICENSE-*` files.

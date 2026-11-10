@@ -1,0 +1,21 @@
+name: Feature request
+description: Something netwatch should see, detect, show or do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The question you want answered or the attack you want caught, and what you do today instead.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like netwatch to do
+      description: A command, a page, a finding, a config option. Example output helps.
+  - type: textarea
+    id: context
+    attributes:
+      label: Your setup
+      description: OS, how you run netwatch (systemd, Docker, macOS), and anything about the network that matters (NAT, Cloudflare tunnel, Tailscale, Docker). Redact public IPs.

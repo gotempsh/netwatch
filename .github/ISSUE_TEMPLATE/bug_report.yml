@@ -1,0 +1,80 @@
+name: Bug report
+description: netwatch does something wrong, crashes or won't start.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you paste output or logs, replace public IP addresses, hostnames and usernames with placeholders (for example `203.0.113.10` and `server.example.com`). They are visible to everyone.
+
+        A security problem goes to [SECURITY.md](https://github.com/gotempsh/netwatch/blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what netwatch did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The commands, config or traffic that trigger it, if you know them.
+  - type: input
+    id: version
+    attributes:
+      label: netwatch version
+      description: The output of `netwatch --version`.
+      placeholder: netwatch 0.1.3
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Install script (curl … | sh)
+        - Release archive, by hand
+        - Docker image
+        - docker compose
+        - Built from source
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: Ubuntu 24.04, Debian 12, macOS 27.1, …
+    validations:
+      required: true
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel and architecture
+      description: The output of `uname -srm`.
+      placeholder: Linux 6.8.0-49-generic x86_64
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: netwatch status
+      description: The output of `netwatch status` (`docker exec netwatch netwatch status` in Docker). Redact public IPs.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The daemon's log around the problem. Redact public IPs.
+        - Linux: `journalctl -u netwatch --since "1 hour ago"`
+        - macOS: `/var/log/netwatch.log`
+        - Docker: `docker logs netwatch`
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: The settings you changed in `/etc/netwatch/netwatch.toml`, if any. Leave out keys and webhook URLs.
+      render: toml

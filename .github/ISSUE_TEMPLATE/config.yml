@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/gotempsh/netwatch/blob/main/SECURITY.md
+    about: Report vulnerabilities privately, as SECURITY.md describes. Don't open a public issue.
+  - name: Documentation
+    url: https://gotempsh.github.io/netwatch/
+    about: Installation, configuration, every CLI command and the API.

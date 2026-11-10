@@ -266,6 +266,12 @@ sudo netwatch allow 198.51.100.4    # never ban; also bypasses XDP drops
 
 When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and run `sudo systemctl restart netwatch`.
 
+To let an AI coding agent investigate with netwatch, install its skill (no `sudo`; it goes to `~/.claude/skills`, or `--dir` elsewhere):
+
+```shell
+netwatch skill --install
+```
+
 ## Ban policy
 
 The built-in defaults are applied in this order, and the first match wins:

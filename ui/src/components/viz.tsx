@@ -66,7 +66,9 @@ export function BandChart({ x, y, lo, hi, marks, unit, label, height = 150 }: { 
   const line = y.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("");
   const band = lo && hi && hi.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("") + lo.map((_, i) => `L${X(lo.length - 1 - i).toFixed(1)},${Y(lo[lo.length - 1 - i]).toFixed(1)}`).join("") + "Z";
   const xi = (ts: number) => x.findIndex((t) => t >= ts);
-  const xt = x.filter((_, i) => i % Math.ceil(x.length / 6) === 0);
+  // A clock label is ~60px wide; fit as many as the width allows, up to six.
+  const nx = Math.max(2, Math.min(6, Math.floor((w - padL - padR) / 80)));
+  const xt = x.filter((_, i) => i % Math.ceil(x.length / nx) === 0);
   const h = hover ?? x.length - 1;
   const out = !lo || !hi ? null : y[h] > hi[h] ? "above typical" : y[h] < lo[h] ? "below typical" : "typical";
   return (

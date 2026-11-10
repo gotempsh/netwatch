@@ -635,6 +635,8 @@ export interface ConnEvent {
 export interface Timeline {
   since: number;
   now: number;
+  /** Flagged sources active in the window; `rows` holds the highest-scoring `limit` of them. */
+  total: number;
   rows: TimelineRow[];
 }
 

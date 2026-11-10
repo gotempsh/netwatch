@@ -1280,17 +1280,19 @@ fn lane_status(banned: bool, ban_pending: bool) -> &'static str {
     }
 }
 
-/// The lanes, highest score first, with what the engine knows; the store fills in
-/// history and events after the engine lock is released.
-fn pick_lanes(e: &Engine, limit: usize, drops: bool) -> Vec<TimelineRow> {
+/// The lanes for sources active since `since`, highest score first, with what the
+/// engine knows, and how many there were before `limit`. The store fills in history
+/// and events after the engine lock is released.
+fn pick_lanes(e: &Engine, limit: usize, drops: bool, since: i64) -> (Vec<TimelineRow>, usize) {
     let mut picked: Vec<&IpState> = e
         .states
         .values()
-        .filter(|s| s.score > 0 && !s.allowlisted)
+        .filter(|s| s.score > 0 && !s.allowlisted && s.last_seen.max(s.ssh.last_event) >= since)
         .collect();
+    let total = picked.len();
     picked.sort_by(|a, b| b.score.cmp(&a.score).then(b.last_seen.cmp(&a.last_seen)));
     picked.truncate(limit);
-    picked
+    let rows = picked
         .into_iter()
         .map(|st| TimelineRow {
             ip: st.ip.to_string(),
@@ -1306,7 +1308,8 @@ fn pick_lanes(e: &Engine, limit: usize, drops: bool) -> Vec<TimelineRow> {
             events: Vec::new(),
             ban: e.ban_for(st.ip).cloned().map(|b| ban_view(e, b, drops)),
         })
-        .collect()
+        .collect();
+    (rows, total)
 }
 
 fn fill_lanes(
@@ -1351,10 +1354,10 @@ async fn timeline(State(app): AppState, Query(q): Query<TimelineQuery>) -> ApiRe
     };
     let limit = q.limit.unwrap_or(20).clamp(1, 50);
     let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
-    let mut rows = pick_lanes(&app.engine.lock().unwrap(), limit, drops);
+    let (mut rows, total) = pick_lanes(&app.engine.lock().unwrap(), limit, drops, now - window);
     fill_lanes(&app.store.lock().unwrap(), &mut rows, now - window).map_err(internal)?;
     Ok(Json(
-        json!({ "since": now - window, "now": now, "rows": rows }),
+        json!({ "since": now - window, "now": now, "total": total, "rows": rows }),
     ))
 }
 
@@ -1989,6 +1992,9 @@ mod tests {
         }
         e.state("198.51.100.9".parse().unwrap(), now).score = 70;
         e.state("198.51.100.9".parse().unwrap(), now).allowlisted = true;
+        // Flagged, but quiet for longer than the window.
+        e.state("192.0.2.50".parse().unwrap(), now - 3 * 86_400)
+            .score = 95;
         store
             .upsert_alert(
                 "203.0.113.7",
@@ -2028,17 +2034,20 @@ mod tests {
             )
             .unwrap();
 
-        let mut rows = pick_lanes(&e, 20, true);
+        let (mut rows, total) = pick_lanes(&e, 20, true, now - 86_400);
         fill_lanes(&store, &mut rows, now - 86_400).unwrap();
         let ips: Vec<_> = rows.iter().map(|r| r.ip.as_str()).collect();
-        // Score 0 and allowlisted sources are not threats.
+        // Score 0 and allowlisted sources are not threats; a quiet one is out of the window.
         assert_eq!(ips, ["203.0.113.7", "198.51.100.4"]);
+        assert_eq!(total, 2);
         assert_eq!(rows[0].hours.len(), 1);
         assert_eq!(rows[0].hours[0].in_packets, 1_200);
         assert_eq!(rows[0].events[0].kind, "finding");
         assert_eq!(rows[0].status, "watching");
         assert_eq!(rows[1].status, "ban proposed");
-        assert_eq!(pick_lanes(&e, 1, true).len(), 1);
+        let (one, total) = pick_lanes(&e, 1, true, now - 86_400);
+        assert_eq!((one.len(), total), (1, 2));
+        assert_eq!(pick_lanes(&e, 20, true, now - 7 * 86_400).1, 3);
         std::fs::remove_file(&path).unwrap();
     }
 

@@ -1,5 +1,4 @@
-import type { Ban, Proposal } from "../api/types";
-import type { Overview } from "../api/types";
+import type { Ban, Overview, Proposal } from "../api/types";
 import { usePoll } from "../api/client";
 import { BanExpiry, BanSourceBadge, ProposalList, TargetLink, unbanCmd } from "../components/domain";
 import { Card, Command, CopyButton, PanelState, RelTime, Segmented } from "../components/ui";

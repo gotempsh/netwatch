@@ -16,6 +16,8 @@ export default function Threats() {
   const ov = usePoll<Overview>("/api/overview", 10_000);
   const tl = usePoll<Timeline>(`/api/timeline?window=${win}&limit=20`, 30_000);
   const rows = useMemo(() => tl.data?.rows ?? [], [tl.data]);
+  // Lanes are capped at 20; the sentence counts every flagged source in the window.
+  const total = Math.max(tl.data?.total ?? 0, rows.length);
 
   const groups = useMemo(() => {
     const m = new Map<string, { org: string; asn: number | null; n: number; banned: number; top: number; kinds: Set<string> }>();
@@ -43,7 +45,9 @@ export default function Threats() {
           <h1>Attack timeline</h1>
           {tl.data && (
             <p className="title-verdict">
-              <b>{fmtInt(rows.length)}</b> flagged source{rows.length === 1 ? "" : "s"} in the last {win === "7d" ? "7 days" : "24 hours"}, <b>{banned}</b> banned{drops ? "" : " (counted, not dropped)"}, <b>{proposed}</b> with a ban waiting for you.{" "}
+              <b>{fmtInt(total)}</b> flagged source{total === 1 ? "" : "s"} in the last {win === "7d" ? "7 days" : "24 hours"}
+              {total > rows.length ? `. Of the ${rows.length} highest-scoring below, ` : ", "}
+              <b>{banned}</b> banned{drops ? "" : " (counted, not dropped)"}, <b>{proposed}</b> with a ban waiting for you.{" "}
               {gotIn.length ? (
                 <b className="hot">
                   {gotIn.length} logged in: {gotIn.map((r) => r.ip).join(", ")}.

@@ -266,12 +266,7 @@ fn check_managed() -> anyhow::Result<()> {
             "netwatch runs in a container here; pull the new image instead: docker pull ghcr.io/gotempsh/netwatch"
         );
     }
-    if !same_file(&exe, Path::new(BIN)) {
-        bail!(
-            "netwatch update replaces {BIN}, which the installer set up, but this is {}; run {BIN} update, or rebuild from source",
-            exe.display()
-        );
-    }
+    check_binary(&exe, Path::new(BIN))?;
     let service = if cfg!(target_os = "macos") {
         "/Library/LaunchDaemons/dev.netwatch.plist"
     } else {
@@ -280,6 +275,28 @@ fn check_managed() -> anyhow::Result<()> {
     if !Path::new(service).exists() {
         bail!(
             "{service} is missing, so the installer didn't set up this netwatch; install it with: curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh"
+        );
+    }
+    Ok(())
+}
+
+/// `bin` is the file the installer wrote and `exe` is it. A symlink at `bin`
+/// itself is someone's own build linked into place, which an update would
+/// replace with a release; a symlinked parent directory is fine.
+fn check_binary(exe: &Path, bin: &Path) -> anyhow::Result<()> {
+    if let Ok(target) = std::fs::read_link(bin) {
+        bail!(
+            "{} links to {}, so it isn't the installer's binary and netwatch update won't replace it; update that build yourself",
+            bin.display(),
+            target.display()
+        );
+    }
+    if !same_file(exe, bin) {
+        bail!(
+            "netwatch update replaces {}, which the installer set up, but this is {}; run {} update, or rebuild from source",
+            bin.display(),
+            exe.display(),
+            bin.display()
         );
     }
     Ok(())
@@ -577,6 +594,31 @@ mod tests {
         assert!(same_file(&resolved, &dir.join("link/netwatch")));
         assert!(!same_file(&resolved, &dir.join("link/other")));
         assert!(!same_file(&resolved, &dir.join("link/missing")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_binary_linked_into_place() {
+        let dir = tempdir("linked");
+        let real = dir.join("real");
+        std::fs::create_dir(&real).unwrap();
+        let build = dir.join("build");
+        std::fs::write(&build, "x").unwrap();
+        // Someone's own build linked in as the binary: an update would replace the link.
+        let bin = real.join("netwatch");
+        std::os::unix::fs::symlink(&build, &bin).unwrap();
+        let e = check_binary(&build, &bin).unwrap_err().to_string();
+        assert!(
+            e.contains("links to") && e.contains("won't replace it"),
+            "{e}"
+        );
+        // The installer's own file, reached through a symlinked directory, is fine.
+        std::fs::remove_file(&bin).unwrap();
+        std::fs::write(&bin, "x").unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("link")).unwrap();
+        check_binary(&bin.canonicalize().unwrap(), &dir.join("link/netwatch")).unwrap();
+        // And a different file still isn't.
+        assert!(check_binary(&build, &dir.join("link/netwatch")).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -140,6 +140,9 @@ fn require_root(what: &str) -> anyhow::Result<()> {
 /// the GeoIP databases and (re)starts the launchd daemons.
 pub fn install(config: &Path) -> anyhow::Result<()> {
     require_root("install")?;
+    // The plist keeps this path, and update and uninstall read it back: a
+    // relative one would mean something else from another directory.
+    let config = &std::path::absolute(config)?;
     let exe = std::env::current_exe()?.canonicalize()?;
     std::fs::create_dir_all("/usr/local/bin")?;
     if exe != Path::new(BIN) {
@@ -200,11 +203,14 @@ fn installed_binaries() -> [&'static str; 2] {
 
 pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     require_root("uninstall")?;
-    // What the daemon runs with, which is where its data and lock live.
-    let config = &crate::update::installed_config(config);
+    // Booting out the update job would stop an update halfway through; the
+    // lock is in the data directory of the config the daemon runs with.
+    let installed = Config::load(&crate::update::installed_config(config)).unwrap_or_default();
+    let _lock = crate::update::Lock::take(&installed)?;
+    // --purge deletes directories, so only the ones the given config (the
+    // default unless --config says otherwise) names, never ones read from
+    // the plist.
     let cfg = Config::load(config).unwrap_or_default();
-    // Booting out the update job would stop an update halfway through.
-    let _lock = crate::update::Lock::take(&cfg)?;
     for label in [LABEL, GEOIP_LABEL, UPDATE_LABEL] {
         let _ = launchctl(&["bootout", &format!("system/{label}")]);
         let _ = std::fs::remove_file(plist_path(label));

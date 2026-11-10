@@ -144,7 +144,7 @@ async fn execute(
         }
         Request::Unban { target } => {
             let net = parse_target(&target)?;
-            let existed = app.unban(net)?;
+            let existed = app.unban(net, "manual")?;
             (
                 if existed {
                     format!("unbanned {net}")

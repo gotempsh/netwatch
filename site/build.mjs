@@ -22,7 +22,7 @@ const VERSION = fs
 const NAV = [
   { title: "Getting started", pages: ["index", "installation", "quick-start", "web-ui"] },
   { title: "Running it", pages: ["docker", "macos"] },
-  { title: "Features", pages: ["detection", "connections", "bans-and-policy", "exploits", "ai-analysis", "slack", "temps"] },
+  { title: "Features", pages: ["detection", "connections", "bans-and-policy", "exploits", "ai-analysis", "slack", "opentelemetry", "temps"] },
   { title: "Reference", pages: ["cli", "configuration", "api", "development"] },
 ];
 

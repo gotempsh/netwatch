@@ -402,6 +402,21 @@ It posts:
 
 Notes are batched (at most one message every 10 s). Anything over the hourly limit is counted and mentioned in the next message.
 
+## OpenTelemetry (optional)
+
+netwatch can push metrics and security events to an OpenTelemetry collector over OTLP/HTTP, and from there to Prometheus, Grafana, Loki, Datadog or a SIEM. Like Slack, it is outbound only.
+
+```toml
+[otel]
+enabled = true
+endpoint = "http://127.0.0.1:4318"
+```
+
+- **Metrics:** packet and byte counters, tracked, active and flagged sources, active bans, pending proposals, SSH failures, exposed listeners, open flows by transport and direction, and throughput per interface and per process (the 20 busiest, the rest as `other`). No per-address series.
+- **Events**, as log records: findings, ban proposals, bans and unbans, SSH logins and failures, and services that start or stop listening, each with attributes such as `source.address`, `netwatch.finding.kind` and `netwatch.score`.
+
+Tokens for hosted backends go in `/etc/netwatch/env` as `OTEL_EXPORTER_OTLP_HEADERS=Authorization=...`. The [OpenTelemetry docs page](https://gotempsh.github.io/netwatch/opentelemetry/) lists every metric, event and attribute, and has a collector config for Prometheus and Loki.
+
 ## temps
 
 On a host that runs [temps](https://github.com/gotempsh/temps), the two exchange what each can't see:

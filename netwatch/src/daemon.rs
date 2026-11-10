@@ -52,6 +52,8 @@ pub struct App {
     pub notify: Notifier,
     /// Hours before this one are compacted already (`Store::compact_window_bytes`).
     window_compacted: AtomicI64,
+    /// OpenTelemetry export, when `[otel]` is enabled.
+    pub otel: Option<crate::otel::Otel>,
 }
 
 /// Interfaces that should carry the flow programs right now.
@@ -145,6 +147,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     };
     let host = crate::host::hostname();
     let notify = Notifier::start(&cfg.slack, &host);
+    let otel = crate::otel::Otel::start(&cfg.otel, &host, cfg.ban.recommend_ban_score);
 
     let app = Arc::new(App {
         cfg: cfg.clone(),
@@ -160,7 +163,12 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         if_addrs: Mutex::new(if_addrs),
         notify,
         window_compacted: AtomicI64::new(i64::MIN),
+        otel,
     });
+    if let Some(o) = &app.otel {
+        o.register_metrics(Arc::downgrade(&app));
+        o.started(&format!("{:?}", cfg.mode).to_lowercase(), &cfg.interface);
+    }
     app.notify.send(
         Level::Info,
         format!("netwatch {} started", env!("CARGO_PKG_VERSION")),
@@ -174,6 +182,19 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         None,
     );
 
+    let result = serve(&app, &cfg, rings).await;
+    if let Some(o) = &app.otel {
+        // Whatever ended the daemon, send what is queued. The tick thread holds
+        // the App, so nothing would be flushed when it is dropped.
+        // Flushing makes HTTP requests; keep them off the async workers.
+        tokio::task::block_in_place(|| o.shutdown());
+    }
+    result
+}
+
+/// Everything after the App exists: the tasks, waiting for a signal, and the
+/// final writes.
+async fn serve(app: &Arc<App>, cfg: &Config, rings: crate::kernel::Rings) -> anyhow::Result<()> {
     app.refresh_allowlist().await?;
     app.restore_bans()?;
     app.check_sshd();
@@ -229,6 +250,9 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         rows.extend(e.drain_flows(now));
         (rows, dns, events, e.bytes.take_unsaved())
     };
+    if let Some(o) = &app.otel {
+        o.conn_events(&events);
+    }
     let mut store = app.store.lock().unwrap();
     store.add_flows(&rows)?;
     store.add_dns(&dns)?;
@@ -482,6 +506,9 @@ impl App {
                 ),
                 Some(format!("netwatch ip {}", a.ip)),
             );
+            if let Some(o) = &self.otel {
+                o.ipopt(a);
+            }
         }
         if !flow_delete.is_empty() || !health_delete.is_empty() {
             let mut k = self.kernel.lock().unwrap();
@@ -516,9 +543,15 @@ impl App {
             if !events.is_empty() {
                 store.add_conn_events(events)?;
                 self.notify_listeners(events);
+                if let Some(o) = &self.otel {
+                    o.conn_events(events);
+                }
             }
             for a in &alerts {
                 store.upsert_alert(&a.ip, a.kind, a.score, &a.summary, &a.location, now)?;
+                if let Some(o) = &self.otel {
+                    o.finding(a);
+                }
             }
             if !hours.is_empty() {
                 let rows: Vec<HourDelta<'_>> = hours
@@ -654,6 +687,17 @@ impl App {
         let id = self.store.lock().unwrap().add_proposal(&p, now_unix())?;
         if let Some(id) = id {
             log::info!("proposal #{id}: {action} {target} ({source}): {reason}");
+            if let Some(o) = &self.otel {
+                o.proposal(&crate::otel::ProposalEvent {
+                    id,
+                    action,
+                    target,
+                    ttl,
+                    reason,
+                    source,
+                    confidence: conf,
+                });
+            }
         }
         Ok(id)
     }
@@ -764,10 +808,15 @@ impl App {
             "",
             now,
         )?;
+        drop(store);
+        if let Some(o) = &self.otel {
+            o.ban(&row);
+        }
         Ok(row)
     }
 
-    pub fn unban(&self, target: IpNet) -> anyhow::Result<bool> {
+    /// `why` says what lifted it ("expired", "manual", "proposal #7"), for the event.
+    pub fn unban(&self, target: IpNet, why: &str) -> anyhow::Result<bool> {
         self.kernel.lock().unwrap().unblock(&target)?;
         {
             let mut e = self.engine.lock().unwrap();
@@ -775,7 +824,11 @@ impl App {
             bans.remove(&target);
             e.set_bans(bans);
         }
-        self.store.lock().unwrap().delete_ban(&target.to_string())
+        let existed = self.store.lock().unwrap().delete_ban(&target.to_string())?;
+        if existed && let Some(o) = &self.otel {
+            o.unban(&target.to_string(), why);
+        }
+        Ok(existed)
     }
 
     fn restore_bans(&self) -> anyhow::Result<()> {
@@ -789,7 +842,11 @@ impl App {
                     continue;
                 };
                 if b.expires.is_some_and(|e| e <= now) {
+                    // Expired while netwatch was down.
                     self.store.lock().unwrap().delete_ban(&b.target)?;
+                    if let Some(o) = &self.otel {
+                        o.unban(&b.target, "expired");
+                    }
                     continue;
                 }
                 k.block(&net)?;
@@ -811,7 +868,7 @@ impl App {
                 .collect()
         };
         for net in expired {
-            self.unban(net)?;
+            self.unban(net, "expired")?;
             log::info!("ban on {net} expired");
         }
         Ok(())
@@ -886,7 +943,7 @@ impl App {
                 }
             }
             "unban" => {
-                self.unban(target)?;
+                self.unban(target, &format!("proposal #{id}"))?;
                 format!("unbanned {target}")
             }
             "allow" => {
@@ -929,7 +986,11 @@ impl App {
         let known = {
             let store = self.store.lock().unwrap();
             match store.add_ssh_event(&row) {
-                Ok(true) => {}
+                Ok(true) => {
+                    if let Some(o) = &self.otel {
+                        o.ssh(&row);
+                    }
+                }
                 Ok(false) => return,
                 Err(e) => {
                     log::warn!("storing ssh event: {e}");

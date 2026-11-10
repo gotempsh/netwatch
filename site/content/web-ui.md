@@ -56,7 +56,7 @@ Terminal: `netwatch dns`, `netwatch dns --top`, `netwatch dns --rcode NXDOMAIN`.
 
 ![Interfaces](/screenshots/interfaces.png)
 
-**Listeners** shows every listening socket, which process or container owns it, and whether it's exposed on a public or wildcard address or bound to loopback only.
+**Listeners** shows every listening socket, which process or container owns it, and whether it's exposed (bound to any address but loopback, LAN included) or bound to loopback only.
 
 ![Listeners](/screenshots/listeners.png)
 

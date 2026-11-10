@@ -160,14 +160,22 @@ fn cve_2026_98432_fix(release: &str) -> Option<KernelFix> {
     })
 }
 
-/// Where the daemon logs why the kernel refused the flow programs: the
-/// container's output, or the systemd unit's journal.
-fn flow_log_cmd() -> &'static str {
+/// Where the daemon logged why the kernel refused the flow programs, and the
+/// command that shows it. A container can't know its own name (Compose calls
+/// it `<project>-netwatch-1`), so there it's said in words.
+fn flow_log() -> (&'static str, Option<&'static str>) {
     #[cfg(target_os = "linux")]
     if crate::host::in_container() {
-        return "docker logs netwatch 2>&1 | grep 'flow program'";
+        return (
+            "The container's log has the kernel's reason (`docker logs <container>`, or `docker compose logs \
+             netwatch`): look for \"flow program\".",
+            None,
+        );
     }
-    "journalctl -u netwatch -b | grep 'flow program'"
+    (
+        "The daemon log has the kernel's reason.",
+        Some("journalctl -u netwatch -b | grep 'flow program'"),
+    )
 }
 
 fn add(
@@ -535,15 +543,17 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
         );
     }
     if !flows_ok {
+        let (log, cmd) = flow_log();
         add(
             &mut out,
             "warn",
             "Connection tracking is off".into(),
-            "The kernel refused netwatch's flow programs, so Connections, DNS, the names behind remote addresses \
-             and exploit detection have no data. Per-source counters, findings and bans still work. The daemon \
-             log has the kernel's reason; please report it with the output of uname -r."
-                .into(),
-            Some(flow_log_cmd().into()),
+            format!(
+                "The kernel refused netwatch's flow programs, so Connections, DNS, the names behind remote \
+                 addresses and exploit detection have no data. Per-source counters, findings and bans still work. \
+                 {log} Please report it with the output of uname -r."
+            ),
+            cmd.map(str::to_string),
         );
     }
     if !e.geo.available() {

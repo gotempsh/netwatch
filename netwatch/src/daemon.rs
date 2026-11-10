@@ -44,6 +44,8 @@ pub struct App {
     pub host: String,
     /// Config allowlist + discovered peers + Cloudflare; DB allow rules are added on top.
     base_allow: Mutex<BTreeSet<IpNet>>,
+    /// The last discovered peers, kept for a discovery command that times out.
+    peers: Mutex<intel::Peers>,
     llm_last_run: Mutex<Option<i64>>,
     /// Owner lookups for the periodic /proc socket scan (tick thread only).
     scan_owners: Mutex<OwnerCache>,
@@ -158,6 +160,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         started: now_unix(),
         host: host.clone(),
         base_allow: Mutex::new(BTreeSet::new()),
+        peers: Mutex::new(intel::Peers::new()),
         llm_last_run: Mutex::new(None),
         scan_owners: Mutex::new(OwnerCache::default()),
         if_addrs: Mutex::new(if_addrs),
@@ -878,8 +881,11 @@ impl App {
     pub async fn refresh_allowlist(&self) -> anyhow::Result<()> {
         let mut base: BTreeSet<IpNet> = self.cfg.allowlist.iter().copied().collect();
         let cfg = self.cfg.clone();
-        let peers = tokio::task::spawn_blocking(move || intel::discover_peers(&cfg)).await?;
-        base.extend(peers);
+        let previous = self.peers.lock().unwrap().clone();
+        let peers =
+            tokio::task::spawn_blocking(move || intel::discover_peers(&cfg, &previous)).await?;
+        base.extend(intel::all_peers(&peers));
+        *self.peers.lock().unwrap() = peers;
         if self.cfg.allow_cloudflare {
             base.extend(intel::cloudflare_ranges().await);
         }

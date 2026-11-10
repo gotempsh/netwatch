@@ -686,10 +686,12 @@ figcaption {
 }
 .prompt-copy svg:nth-of-type(2),
 .prompt-pill svg:nth-of-type(2),
-.copied svg:nth-of-type(1) {
+.prompt-copy.copied svg:nth-of-type(1),
+.prompt-pill.copied svg:nth-of-type(1) {
   display: none;
 }
-.copied svg:nth-of-type(2) {
+.prompt-copy.copied svg:nth-of-type(2),
+.prompt-pill.copied svg:nth-of-type(2) {
   display: block;
 }
 .prompt-text {
@@ -934,5 +936,20 @@ figcaption {
   :not(pre) > code {
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+}
+/* On the narrowest phones the pill keeps only its icon, so the top bar fits;
+   the label still names it for screen readers. */
+@media (max-width: 389px) {
+  .prompt-pill {
+    padding: 0 9px;
+  }
+  .prompt-pill span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

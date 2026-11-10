@@ -405,6 +405,10 @@ fn ask_socket(
     timeout: Duration,
 ) -> Result<Option<Vec<u8>>, ()> {
     use std::io::{ErrorKind, Read as _, Write as _};
+    // A zero timeout would mean none at all to set_read_timeout.
+    if timeout.is_zero() {
+        return Err(());
+    }
     let Ok(mut s) = std::os::unix::net::UnixStream::connect(path) else {
         return Ok(None);
     };
@@ -474,8 +478,9 @@ fn localapi(socket: &std::path::Path, path: &str, timeout: Duration) -> Answer {
     }
 }
 
-/// Every wireguard-go interface's UAPI answer to `get=1`, one after another.
-/// `None` when there is no such socket, to fall back to `wg`.
+/// Every wireguard-go interface's UAPI answer to `get=1`, one after another,
+/// all within `timeout` as `wg show all` is. `None` when there is no such
+/// socket, to fall back to `wg`.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn wireguard_uapi(dir: &std::path::Path, timeout: Duration) -> Option<Answer> {
     let mut socks: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
@@ -487,12 +492,13 @@ fn wireguard_uapi(dir: &std::path::Path, timeout: Duration) -> Option<Answer> {
         return None;
     }
     socks.sort();
+    let deadline = std::time::Instant::now() + timeout;
     let mut text = String::new();
-    let mut timed_out = false;
     for sock in &socks {
         // The answer ends with `errno=N` and a blank line; the socket stays open for more.
         let done = |b: &[u8]| b.ends_with(b"\n\n") && b.windows(6).any(|w| w == b"errno=");
-        match ask_socket(sock, b"get=1\n\n", done, timeout) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match ask_socket(sock, b"get=1\n\n", done, left) {
             Ok(Some(out)) => text.push_str(&String::from_utf8_lossy(&out)),
             Ok(None) => {}
             Err(()) => {
@@ -501,16 +507,12 @@ fn wireguard_uapi(dir: &std::path::Path, timeout: Duration) -> Option<Answer> {
                     sock.display(),
                     timeout.as_secs()
                 );
-                timed_out = true;
+                // Keep the last addresses rather than drop the ones a slow interface had.
+                return Some(Answer::TimedOut);
             }
         }
     }
-    // Keep the last addresses rather than drop the ones a slow interface had.
-    Some(if timed_out {
-        Answer::TimedOut
-    } else {
-        Answer::Output(text)
-    })
+    Some(Answer::Output(text))
 }
 
 /// `endpoint=` lines of a UAPI `get` answer.
@@ -988,6 +990,30 @@ mod tests {
         std::fs::create_dir(&empty).unwrap();
         assert!(wireguard_uapi(&empty, t).is_none());
         assert!(wireguard_uapi(&dir.join("missing"), t).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn hung_wireguard_interfaces_share_one_timeout() {
+        use super::{Answer, wireguard_uapi};
+        let hang = |c| {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            drop(c);
+        };
+        let first = fake_daemon("utun3", hang);
+        let dir = first.parent().unwrap();
+        for name in ["utun4.sock", "utun5.sock"] {
+            let l = std::os::unix::net::UnixListener::bind(dir.join(name)).unwrap();
+            std::thread::spawn(move || l.incoming().flatten().for_each(hang));
+        }
+        let start = std::time::Instant::now();
+        let a = wireguard_uapi(dir, std::time::Duration::from_millis(300));
+        assert!(matches!(a, Some(Answer::TimedOut)));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(800),
+            "{:?}",
+            start.elapsed()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

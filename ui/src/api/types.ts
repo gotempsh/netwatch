@@ -378,7 +378,7 @@ export interface FlowRow {
   bytes_out: number;
   pkts_in: number;
   pkts_out: number;
-  /** TCP: established, syn_sent, failed, closed, time_wait, ...; non-TCP: "active". */
+  /** TCP: established, syn_sent, failed, closed, time_wait, unanswered (a SYN nothing replied to), ...; non-TCP: "active". */
   state: string;
   connect_ms: number | null;
   retrans: number;

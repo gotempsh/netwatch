@@ -883,6 +883,7 @@ const ACTIVE_SEEDS: FlowSeed[] = [
     app: { proto: "http", http_method: "GET", http_host: HOST4, http_path: "/wp-login.php?redirect_to=%2Fwp-admin%2F&reauth=1", user_agent: `${UA_CHROME} zgrab/0.x`, http_status: 404, server: "nginx/1.25.3" },
   },
   { iface: "eno1", proto: "tcp", local: HOST4, lport: 3389, remote: "193.163.125.14", rport: 61000, dir: "in", age: 2, bin: 60, bout: 40, state: "closed", rst_sent: 1 },
+  { iface: "eno1", proto: "tcp", local: HOST4, lport: 6379, remote: "47.92.101.33", rport: 53120, dir: "in", age: 4, bin: 60, bout: 0, state: "unanswered" },
   { iface: "eno1", proto: "tcp", local: HOST4, lport: 443, remote: "121.36.212.9", rport: 47712, dir: "in", age: 1, bin: 60, bout: 60, state: "syn_recv", owner: O.caddy },
   { iface: "eno1", proto: "tcp", local: HOST4, lport: 48812, remote: "140.82.121.4", rport: 443, dir: "out", age: 6, bin: 3_800_000, bout: 41_000, rin: 640_000, rout: 2_000, connect_ms: 18.4, owner: O.git, app: { proto: "tls", sni: "github.com", alpn: "http/1.1" } },
   { iface: "eno1", proto: "tcp", local: HOST4, lport: 50110, remote: "149.137.128.10", rport: 443, dir: "out", age: 1_420, bin: 9_400_000, bout: 1_240_000_000, rin: 6_000, rout: 9_200_000, connect_ms: 31.9, retrans: 37, owner: O.restic, app: { proto: "tls", sni: "s3.eu-central-003.backblazeb2.com", alpn: "h2" } },

@@ -147,6 +147,7 @@ const STATE_TONE: Record<string, Tone> = {
   active: "accent",
   failed: "critical",
   syn_sent: "warning",
+  unanswered: "warning",
   syn_recv: "warning",
   new_syn_recv: "warning",
   listen: "accent",

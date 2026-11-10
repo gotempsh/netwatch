@@ -21,6 +21,8 @@ install -m 0755 "$BIN" /usr/local/bin/netwatch
 install -m 0755 scripts/netwatch-update-geoip /usr/local/bin/netwatch-update-geoip
 install -m 0644 scripts/systemd/netwatch.service scripts/systemd/netwatch-update-geoip.service \
     scripts/systemd/netwatch-update-geoip.timer /etc/systemd/system/
+# Automatic updates stay off until `sudo netwatch update --auto on`; this keeps the units current.
+install -m 0644 scripts/systemd/netwatch-update.service scripts/systemd/netwatch-update.timer /etc/systemd/system/
 echo "installed /usr/local/bin/netwatch ($(/usr/local/bin/netwatch --version))"
 
 install -d -m 0755 /etc/netwatch

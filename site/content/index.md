@@ -8,7 +8,7 @@ description: netwatch is a single-binary traffic monitor for Linux servers and m
 
 ```shell
 curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
-npx skills add gotempsh/netwatch     # the agent skill
+netwatch skill --install   # the agent skill, for Claude Code and Cursor
 ```
 
 Or let your coding agent set it up:
@@ -77,7 +77,7 @@ In observe mode every ban is a proposal with its reason, confidence and the comm
 
 <!-- /steps -->
 
-[The web UI](/web-ui) goes through every page, with the command that gives the same view in a terminal.
+The screenshots use the UI's built-in demo data, not a real host. [The web UI](/web-ui) goes through every page, with the command that gives the same view in a terminal.
 
 ## What you get
 
@@ -123,4 +123,4 @@ The daemon is one Rust binary with the eBPF programs and the web UI embedded. St
 
 Every page is also plain Markdown at its address with `.md` in place of the trailing slash (`/installation/` is `/installation.md`; this page's is [`/index.md`](/index.md)), or use **Copy page** at the top. [`/llms.txt`](/llms.txt) lists every page and [`/llms-full.txt`](/llms-full.txt) holds them all in one file.
 
-The [agent skill](/cli#agent-skill) teaches a coding agent which command answers which question, how to read scores, and to ask before banning anything.
+The agent skill teaches a coding agent which command answers which question, how to read scores, and to ask before banning anything. `netwatch skill --install` adds it for Claude Code and Cursor, and `netwatch skill --install --dir ~/.agents/skills` for Codex and most others. [AI agents](/agents) has the folder for each agent and what to ask it.

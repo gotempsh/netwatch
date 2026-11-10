@@ -13,6 +13,8 @@ You browse the results in a read-only web UI that listens only on `127.0.0.1`.
 
 **Documentation: [gotempsh.github.io/netwatch](https://gotempsh.github.io/netwatch/)**
 
+It runs as root, so [Security and privacy](https://gotempsh.github.io/netwatch/security/) lists every outbound request it makes, what it stores and how to verify a release. [Compared to other tools](https://gotempsh.github.io/netwatch/comparison/) sets it next to fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch and Little Snitch. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 Optionally, it can use any OpenAI-compatible model. The model reviews the sources the rules can't settle, and turns plain-English ban policies into rules. It is designed for cheap models and small token budgets.
 
 ![Overview: live rates, active bans, pending proposals, and insights with the command that fixes each one](docs/screenshots/overview.png)

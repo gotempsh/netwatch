@@ -83,6 +83,8 @@ Each release has `SHA256SUMS`, which the install script checks, and a build prov
 gh attestation verify netwatch-linux-x86_64.tar.gz -R gotempsh/netwatch
 ```
 
+[Security and privacy](/security#verify-a-download) shows the full check, including the tag and commit an archive was built from.
+
 ### GeoIP databases
 
 To use MaxMind GeoLite2 instead of DB-IP, point `geoip_city` and `geoip_asn` in the [configuration](/configuration) at those `.mmdb` files. Changed files are reloaded automatically.

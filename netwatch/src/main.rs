@@ -17,6 +17,7 @@ mod netif;
 mod notify;
 mod policy;
 mod procs;
+mod skill;
 mod ssh;
 mod store;
 mod temps;
@@ -28,13 +29,12 @@ compile_error!("netwatch runs on Linux (eBPF/XDP) and macOS (/dev/bpf)");
 /// macOS: userspace capture behind the same interface as the eBPF loader.
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "macos")]
-use macos::kernel;
-
 use std::path::PathBuf;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
+#[cfg(target_os = "macos")]
+use macos::kernel;
 use serde_json::Value;
 
 use crate::{
@@ -214,6 +214,21 @@ enum Cmd {
     },
     /// Print the default configuration.
     DefaultConfig,
+    /// Print the agent skill for this version, or install it (no daemon needed).
+    ///
+    /// Examples:
+    ///   netwatch skill --install                      # for Claude Code: ~/.claude/skills
+    ///   netwatch skill --install --dir .claude/skills # this project only
+    ///   netwatch skill > SKILL.md
+    #[command(verbatim_doc_comment)]
+    Skill {
+        /// Write <dir>/netwatch/SKILL.md instead of printing it.
+        #[arg(long)]
+        install: bool,
+        /// Skills directory to install into [default: ~/.claude/skills]
+        #[arg(long, requires = "install")]
+        dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -255,6 +270,22 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         print!("{}", toml::to_string_pretty(&Config::default())?);
         return Ok(());
     }
+    if let Cmd::Skill { install, dir } = &cli.cmd {
+        if !install {
+            print!("{}", skill::SKILL);
+            return Ok(());
+        }
+        let path = match dir {
+            Some(d) => skill::install(d)?,
+            None => skill::install(&skill::default_dir()?)?,
+        };
+        // Under sudo, HOME is root's: say whose skills directory this was.
+        let sudo_user = std::env::var("SUDO_USER")
+            .ok()
+            .filter(|_| dir.is_none() && unsafe { libc::geteuid() } == 0);
+        eprintln!("{}", skill::installed_message(&path, sudo_user.as_deref()));
+        return Ok(());
+    }
     #[cfg(target_os = "macos")]
     match &cli.cmd {
         Cmd::Install => return macos::launchd::install(&cli.config),
@@ -280,7 +311,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Run => daemon::run(cfg).await?,
-        Cmd::DefaultConfig => unreachable!(),
+        Cmd::DefaultConfig | Cmd::Skill { .. } => unreachable!(),
         #[cfg(target_os = "macos")]
         Cmd::Install | Cmd::Uninstall { .. } | Cmd::UpdateGeoip => unreachable!(),
         Cmd::Status => {

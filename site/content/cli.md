@@ -27,7 +27,7 @@ Read-only commands query the daemon's API on `127.0.0.1:9180` and need no root. 
 |---|---|
 | `netwatch sources` | tracked sources, by score; alias `top` |
 | `netwatch ip <ip>` | everything known about one address, including its connections |
-| `netwatch geo <ip>` | offline lookup in the GeoIP databases; needs no daemon |
+| `netwatch geo <ip>` | offline lookup in the GeoIP databases; needs no daemon, and says how to download the databases if they're missing |
 
 `netwatch sources` options:
 

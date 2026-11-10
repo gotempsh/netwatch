@@ -94,9 +94,8 @@ enum Cmd {
         limit: usize,
     },
     /// Everything known about one address.
-    Ip {
-        ip: String,
-    },
+    Ip { ip: String },
+    /// Findings per source: scans, probes, floods, brute force, feed matches.
     Alerts {
         #[arg(short = 'n', long, default_value_t = 30)]
         limit: u32,
@@ -106,7 +105,9 @@ enum Cmd {
         #[arg(short = 'n', long, default_value_t = 30)]
         limit: u32,
     },
+    /// What deserves attention now, each with the command that acts on it.
     Insights,
+    /// Active bans, with what they dropped and when they expire.
     Bans,
     /// Actions proposed by rules or the LLM.
     Proposals {
@@ -125,24 +126,20 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    Unban {
-        target: String,
-    },
+    /// Lift a ban (root).
+    Unban { target: String },
     /// Never ban this IP/CIDR and keep it out of proposals (root).
     Allow {
         target: String,
         #[arg(long)]
         note: Option<String>,
     },
-    Disallow {
-        target: String,
-    },
-    Approve {
-        id: i64,
-    },
-    Reject {
-        id: i64,
-    },
+    /// Remove an address added with `allow` (root).
+    Disallow { target: String },
+    /// Apply a proposed action, by its ID in `netwatch proposals` (root).
+    Approve { id: i64 },
+    /// Drop a proposed action (root).
+    Reject { id: i64 },
     /// Show or change the ban policy.
     Policy {
         #[command(subcommand)]
@@ -212,12 +209,10 @@ enum Cmd {
         limit: u32,
     },
     /// Look up an address in the geo databases (no daemon needed).
-    Geo {
-        ip: std::net::IpAddr,
-    },
+    Geo { ip: std::net::IpAddr },
     /// Print the default configuration.
     DefaultConfig,
-    /// Print the agent skill for this version, or install it (no daemon needed).
+    /// Print the agent skill for this version, or install it (no daemon needed)
     ///
     /// Examples:
     ///   netwatch skill --install                        # Claude Code and Cursor: ~/.claude/skills
@@ -233,7 +228,8 @@ enum Cmd {
         #[arg(long, requires = "install")]
         dir: Option<PathBuf>,
     },
-    /// Install the latest release over this one and restart the daemon (root).
+    /// Install the latest release over this one and restart the daemon (root)
+    ///
     /// It checks the download against the release's SHA256SUMS, and if the new
     /// daemon doesn't start, puts the running version back.
     ///
@@ -315,6 +311,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::UpdateGeoip => return macos::launchd::update_geoip(&Config::load(&cli.config)?),
         _ => {}
     }
+    // It loads the config the installed daemon runs with, which may not be this one.
+    if let Cmd::Update { check, auto } = &cli.cmd {
+        return update::run(&cli.config, *check, auto.as_deref()).await;
+    }
     let cfg = Config::load(&cli.config)?;
     let api = Client {
         base: cfg.api_url(),
@@ -333,8 +333,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Run => daemon::run(cfg).await?,
-        Cmd::Update { check, auto } => update::run(&cli.config, check, auto.as_deref()).await?,
-        Cmd::DefaultConfig | Cmd::Skill { .. } => unreachable!(),
+        Cmd::DefaultConfig | Cmd::Skill { .. } | Cmd::Update { .. } => unreachable!(),
         #[cfg(target_os = "macos")]
         Cmd::Install | Cmd::Uninstall { .. } | Cmd::UpdateGeoip => unreachable!(),
         Cmd::Status => {
@@ -958,6 +957,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         },
         Cmd::Geo { ip } => {
             let g = geo::Geo::open(&cfg.geoip_city, &cfg.geoip_asn);
+            if !g.available() {
+                bail!(
+                    "no GeoIP database at {} or {}; download them with: {}",
+                    cfg.geoip_city.display(),
+                    cfg.geoip_asn.display(),
+                    insights::UPDATE_GEOIP
+                );
+            }
             println!("{}", serde_json::to_string_pretty(&g.lookup(ip))?);
         }
     }
@@ -972,12 +979,14 @@ struct Client {
 impl Client {
     async fn get(&self, path: &str) -> anyhow::Result<Value> {
         let url = format!("{}{path}", self.base);
-        let resp = self.http.get(&url).send().await.with_context(|| {
-            format!(
-                "cannot reach the daemon at {} (is netwatch running?)",
-                self.base
-            )
-        })?;
+        let resp = match self.http.get(&url).send().await {
+            Ok(r) => r,
+            // The usual first-run case: say what to do, not the socket error chain.
+            Err(e) if e.is_connect() => bail!("{}", not_running(&self.base)),
+            Err(e) => {
+                return Err(e).with_context(|| format!("asking the daemon at {}", self.base));
+            }
+        };
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
@@ -985,6 +994,17 @@ impl Client {
         }
         Ok(serde_json::from_str(&text)?)
     }
+}
+
+fn not_running(base: &str) -> String {
+    let check = if cfg!(target_os = "macos") {
+        "sudo launchctl print system/dev.netwatch, and /var/log/netwatch.log"
+    } else {
+        "systemctl status netwatch"
+    };
+    format!(
+        "nothing answers at {base}, so the netwatch daemon isn't running there. Check: {check}. Not installed yet: https://gotempsh.github.io/netwatch/installation/"
+    )
 }
 
 fn f(v: &Value) -> f64 {

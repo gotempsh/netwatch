@@ -298,8 +298,16 @@ pub struct Pcap {
 
 impl Pcap {
     pub fn read(path: &Path) -> io::Result<Self> {
-        Self::parse(&std::fs::read(path)?)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not a pcap file"))
+        let b = std::fs::read(path)?;
+        Self::parse(&b).ok_or_else(|| {
+            let why = if b.starts_with(&[0x0a, 0x0d, 0x0d, 0x0a]) {
+                // What Wireshark saves by default.
+                "a pcapng file; only classic pcap is read. Convert it: tcpdump -r in.pcapng -w out.pcap"
+            } else {
+                "not a pcap file"
+            };
+            io::Error::new(io::ErrorKind::InvalidData, why)
+        })
     }
 
     pub fn parse(b: &[u8]) -> Option<Self> {
@@ -325,7 +333,12 @@ impl Pcap {
         while pos + 16 <= b.len() {
             let (sec, sub, incl, orig) =
                 (rd(pos)?, rd(pos + 4)?, rd(pos + 8)? as usize, rd(pos + 12)?);
-            let data = b.get(pos + 16..pos + 16 + incl)?.to_vec();
+            // A capture cut short (tcpdump still writing, or stopped hard)
+            // ends in a partial record: keep what came before it.
+            let Some(data) = b.get(pos + 16..pos + 16 + incl) else {
+                break;
+            };
+            let data = data.to_vec();
             let ns = sec as i128 * 1_000_000_000 + sub as i128 * if nanos { 1 } else { 1000 };
             frames.push((ns, orig, data));
             pos += 16 + incl;
@@ -419,5 +432,16 @@ mod tests {
         let p = Pcap::parse(&f).unwrap();
         assert_eq!(p.dlt, 1);
         assert_eq!(p.frames, vec![(10_000_005_000, 60, b"abc".to_vec())]);
+        // A truncated last record is dropped, not the whole file.
+        for v in [11u32, 0, 100, 100] {
+            f.extend_from_slice(&v.to_le_bytes());
+        }
+        f.extend_from_slice(b"partial");
+        assert_eq!(Pcap::parse(&f).unwrap().frames.len(), 1);
+        let dir = std::env::temp_dir().join(format!("nwpcap{}", std::process::id()));
+        std::fs::write(&dir, [0x0a, 0x0d, 0x0d, 0x0a, 0, 0, 0, 0]).unwrap();
+        let err = Pcap::read(&dir).err().unwrap().to_string();
+        std::fs::remove_file(&dir).unwrap();
+        assert!(err.contains("pcapng"), "{err}");
     }
 }

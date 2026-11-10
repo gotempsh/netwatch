@@ -44,9 +44,9 @@ const BANS_DROPPED: &str =
     "Banned traffic is dropped by pf (anchor com.apple/netwatch) while netwatch runs.";
 
 #[cfg(target_os = "linux")]
-const UPDATE_GEOIP: &str = "sudo netwatch-update-geoip";
+pub const UPDATE_GEOIP: &str = "sudo netwatch-update-geoip";
 #[cfg(target_os = "macos")]
-const UPDATE_GEOIP: &str = "sudo netwatch update-geoip";
+pub const UPDATE_GEOIP: &str = "sudo netwatch update-geoip";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Insight {
@@ -426,12 +426,7 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
     if !scanners.is_empty() {
         let mut asn: HashMap<String, usize> = HashMap::new();
         for s in &scanners {
-            *asn.entry(format!(
-                "AS{} {}",
-                s.geo.asn.unwrap_or(0),
-                s.geo.as_org.as_deref().unwrap_or("?")
-            ))
-            .or_default() += 1;
+            *asn.entry(network_label(&s.geo)).or_default() += 1;
         }
         let mut asn: Vec<(String, usize)> = asn.into_iter().collect();
         asn.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
@@ -588,8 +583,28 @@ fn public_ssh_addrs(e: &crate::engine::Engine) -> Vec<String> {
     out
 }
 
+/// "AS13335 Cloudflare, Inc.", or "unknown network" for addresses the ASN database doesn't cover.
+fn network_label(g: &crate::geo::GeoInfo) -> String {
+    match (g.asn, g.as_org.as_deref()) {
+        (Some(asn), Some(org)) => format!("AS{asn} {org}"),
+        (Some(asn), None) => format!("AS{asn}"),
+        (None, _) => "unknown network".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn networks_without_an_asn_are_called_unknown() {
+        let mut g = crate::geo::GeoInfo::default();
+        assert_eq!(super::network_label(&g), "unknown network");
+        g.asn = Some(64496);
+        assert_eq!(super::network_label(&g), "AS64496");
+        g.as_org = Some("Example Net".into());
+        assert_eq!(super::network_label(&g), "AS64496 Example Net");
+    }
+
     use super::*;
 
     #[test]

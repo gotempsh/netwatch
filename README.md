@@ -224,7 +224,7 @@ sudo target/release/netwatch install
 - downloads the DB-IP Lite databases into `/var/db/netwatch`, and schedules `netwatch update-geoip` monthly;
 - starts the launchd daemon `dev.netwatch` in observe mode, logging to `/var/log/netwatch.log`.
 
-`sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too. Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file.
+`sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too. Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. Restart the daemon after editing either with `sudo launchctl kickstart -k system/dev.netwatch`.
 
 Differences on macOS:
 
@@ -234,7 +234,7 @@ Differences on macOS:
 - **Linux-only.** `xdp_mode`, `drop_syn_ip_options` and the CVE-2026-98432 alerts (a Linux TCP bug) don't apply. `ssh_units` is replaced by the unified log.
 - **SSH.** SSH alerts need Remote Login (System Settings › General › Sharing). Without it, the "sshd accepts passwords" check is skipped.
 
-`NETWATCH_PCAP=capture.pcap netwatch run` replays a capture file through the whole pipeline instead of capturing, without root. It is useful for testing rules: point `db_path` and the sockets at a scratch directory.
+`NETWATCH_PCAP=capture.pcap netwatch run` replays a capture file through the whole pipeline instead of capturing, without root. It is useful for testing rules: point `db_path` and the sockets at a scratch directory. It reads classic pcap (convert a Wireshark pcapng with `tcpdump -r in.pcapng -w out.pcap`).
 
 ## Use it
 
@@ -272,7 +272,7 @@ sudo netwatch unban 203.0.113.0/24
 sudo netwatch allow 198.51.100.4    # never ban; also bypasses XDP drops
 ```
 
-When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and run `sudo systemctl restart netwatch`.
+When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and restart the daemon: `sudo systemctl restart netwatch`, or `sudo launchctl kickstart -k system/dev.netwatch` on macOS.
 
 To let an AI coding agent investigate with netwatch, install its skill as yourself (no `sudo`), then start a new agent session:
 

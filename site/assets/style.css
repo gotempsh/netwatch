@@ -913,12 +913,26 @@ figcaption {
   .copy-code {
     opacity: 1;
   }
+  /* The button gets its own gutter, so a long line scrolls under nothing. */
+  .code {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-subtle);
+  }
   .code pre {
-    padding-right: 48px;
+    margin-right: 46px;
+    border: 0;
+    border-radius: 10px 0 0 10px;
+    padding-right: 12px;
   }
 }
 @media (max-width: 480px) {
   .version {
     display: none;
+  }
+  /* A long command in a sentence would push the page sideways. */
+  :not(pre) > code {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }

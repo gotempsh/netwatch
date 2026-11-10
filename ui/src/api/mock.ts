@@ -1148,6 +1148,7 @@ function flowsSummary(window: string | null): FlowsSummary {
     failed,
     bytes_in: total_in,
     bytes_out: total_out,
+    bytes_since: windowSecs(w, 3600) > 3600 ? since - (since % 3600) : since - (since % 60),
     listeners: listenerSeeds().length,
     truncated: false,
     top_remotes: top(by[0]),

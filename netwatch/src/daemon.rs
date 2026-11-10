@@ -211,13 +211,16 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     app.kernel.lock().unwrap().shutdown();
     // Keep what was still open: long-lived connections only reach the store when they end.
     let now = now_unix();
-    let (rows, dns, events) = {
+    let (rows, dns, events, minutes) = {
         let mut e = app.engine.lock().unwrap();
-        let mut archived = e.take_flow_archive(now);
-        archived.0.extend(e.drain_flows(now));
-        archived
+        e.fold_bytes(now);
+        e.bytes.close();
+        let (mut rows, dns, events) = e.take_flow_archive(now);
+        rows.extend(e.drain_flows(now));
+        (rows, dns, events, e.bytes.take_unsaved())
     };
     let mut store = app.store.lock().unwrap();
+    store.add_window_bytes(&minutes)?;
     store.add_flows(&rows)?;
     store.add_dns(&dns)?;
     store.add_conn_events(&events)?;
@@ -372,7 +375,17 @@ impl App {
                 attached,
             )
         };
-        let (alerts, ipopt, hours, decisions, subnets, flow_delete, health_delete, archived) = {
+        let (
+            alerts,
+            ipopt,
+            hours,
+            decisions,
+            subnets,
+            flow_delete,
+            health_delete,
+            archived,
+            minutes,
+        ) = {
             let mut e = self.engine.lock().unwrap();
             if periodic {
                 e.listening = intel::Listening::scan();
@@ -391,6 +404,8 @@ impl App {
             } else {
                 Vec::new()
             };
+            e.fold_bytes(now);
+            let minutes = e.bytes.take_unsaved();
             let archived = e.take_flow_archive(now);
             e.observe_global(global, now, dt);
             e.observe_sources(sources, now, dt);
@@ -421,6 +436,7 @@ impl App {
                 flow_delete,
                 health_delete,
                 archived,
+                minutes,
             )
         };
         let mitigation = if ipopt.is_empty() {
@@ -474,6 +490,9 @@ impl App {
                 store.add_conn_events(events)?;
                 self.notify_listeners(events);
             }
+            if !minutes.is_empty() {
+                store.add_window_bytes(&minutes)?;
+            }
             for a in &alerts {
                 store.upsert_alert(&a.ip, a.kind, a.score, &a.summary, &a.location, now)?;
             }
@@ -496,6 +515,7 @@ impl App {
             if periodic {
                 store.prune(self.cfg.retention_days, now)?;
                 store.prune_flows(self.cfg.flow_retention_days, now)?;
+                store.compact_window_bytes(now - now.rem_euclid(3600))?;
             }
         }
 

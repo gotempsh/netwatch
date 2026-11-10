@@ -496,8 +496,11 @@ export interface FlowsSummary {
   inbound: number;
   outbound: number;
   failed: number;
+  /** Bytes moved within the window (not each flow's lifetime). */
   bytes_in: number;
   bytes_out: number;
+  /** Where the byte totals start: the window rounded down to the minute, or to the hour beyond 1h. */
+  bytes_since: number;
   listeners: number; // all listening sockets
   truncated: boolean; // history capped at 100k flows
   top_remotes: FlowGroup[];

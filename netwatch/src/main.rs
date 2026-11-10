@@ -21,6 +21,7 @@ mod ssh;
 mod store;
 mod temps;
 mod util;
+mod window;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("netwatch runs on Linux (eBPF/XDP) and macOS (/dev/bpf)");
@@ -28,13 +29,12 @@ compile_error!("netwatch runs on Linux (eBPF/XDP) and macOS (/dev/bpf)");
 /// macOS: userspace capture behind the same interface as the eBPF loader.
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "macos")]
-use macos::kernel;
-
 use std::path::PathBuf;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
+#[cfg(target_os = "macos")]
+use macos::kernel;
 use serde_json::Value;
 
 use crate::{

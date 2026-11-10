@@ -114,6 +114,9 @@ pub struct Flow {
     k: FlowStats,
     /// The request was handed to the engine already.
     noted: bool,
+    /// Bytes not yet counted in the window totals (window.rs).
+    unfolded_in: u64,
+    unfolded_out: u64,
 }
 
 /// What a remote client sent to one of this host's services (once per connection).
@@ -637,6 +640,8 @@ impl FlowTable {
                     app: AppMeta::default(),
                     k: FlowStats::default(),
                     noted: false,
+                    unfolded_in: 0,
+                    unfolded_out: 0,
                 }
             });
             // A recycled kernel entry starts again from zero.
@@ -649,6 +654,8 @@ impl FlowTable {
             );
             flow.bytes_in += di;
             flow.bytes_out += dout;
+            flow.unfolded_in += di;
+            flow.unfolded_out += dout;
             flow.pkts_in += st.pkts_in.saturating_sub(flow.k.pkts_in);
             flow.pkts_out += st.pkts_out.saturating_sub(flow.k.pkts_out);
             flow.rate_in = di as f64 / dt;
@@ -1533,6 +1540,21 @@ impl FlowTable {
         )
     }
 
+    /// Open and finished flows that moved bytes the window totals don't have yet.
+    fn unfolded(&self) -> impl Iterator<Item = &Flow> {
+        self.active
+            .values()
+            .chain(&self.archive)
+            .filter(|f| f.unfolded_in + f.unfolded_out > 0)
+    }
+
+    fn clear_unfolded(&mut self) {
+        for f in self.active.values_mut().chain(&mut self.archive) {
+            f.unfolded_in = 0;
+            f.unfolded_out = 0;
+        }
+    }
+
     /// Everything still open, for a clean shutdown.
     pub fn drain_active(&mut self) -> Vec<Flow> {
         self.active.drain().map(|(_, f)| f).collect()
@@ -1745,6 +1767,21 @@ impl crate::engine::Engine {
             active,
             rate_in: f.rate_in,
             rate_out: f.rate_out,
+        }
+    }
+
+    /// Adds the bytes flows moved since the last call to the window totals;
+    /// call it before `take_flow_archive`, which hands finished flows on.
+    pub fn fold_bytes(&mut self, now: i64) {
+        let moved: Vec<_> = self
+            .flows
+            .unfolded()
+            .map(|f| (self.flow_row(f, now, true), f.unfolded_in, f.unfolded_out))
+            .collect();
+        self.flows.clear_unfolded();
+        self.bytes.roll(now);
+        for (row, bytes_in, bytes_out) in &moved {
+            self.bytes.add(now, row, *bytes_in, *bytes_out);
         }
     }
 
@@ -1976,6 +2013,46 @@ mod tests {
         t.observe(vec![(k, st2)], &[], &clock, now, 1.0);
         let f = &t.active[&k];
         assert_eq!((f.bytes_in, f.bytes_out, f.dir), (1300, 200, Dir::Out));
+    }
+
+    #[test]
+    fn window_totals_count_what_moved_not_a_flows_lifetime() {
+        let geo = crate::geo::Geo::open(
+            std::path::Path::new("/nonexistent/city.mmdb"),
+            std::path::Path::new("/nonexistent/asn.mmdb"),
+        );
+        let cfg = std::sync::Arc::new(crate::config::Config::default());
+        let mut e = crate::engine::Engine::new(cfg, geo, (32768, 60999));
+        let clock = BootClock::new();
+        let k = key("10.0.0.2", 51000, "1.1.1.1", 443, PROTO_TCP);
+        let ns = crate::util::boot_now_ns();
+        let st = |bytes_in| FlowStats {
+            bytes_in,
+            initiator: INIT_LOCAL,
+            first_seen_ns: ns,
+            last_seen_ns: ns,
+            ..Default::default()
+        };
+        let total = |b: &crate::window::Bucket| b[&(crate::window::TOTAL, String::new())].bytes_in;
+        // A long-lived connection: 9 GB before, 500 bytes in the last minutes.
+        let now = crate::util::now_unix();
+        e.flows
+            .observe(vec![(k, st(9_000_000_000))], &[], &clock, now, 1.0);
+        e.fold_bytes(now);
+        let later = now + 120;
+        e.flows
+            .observe(vec![(k, st(9_000_000_500))], &[], &clock, later, 1.0);
+        e.fold_bytes(later);
+        e.fold_bytes(later); // nothing new moved
+        assert_eq!(e.flows.active[&k].bytes_in, 9_000_000_500);
+        assert_eq!(total(&e.bytes.since(later - later % 60)), 500);
+        assert_eq!(total(&e.bytes.since(0)), 9_000_000_500);
+        let remote = &e.bytes.since(later - later % 60)[&(crate::window::REMOTE, "1.1.1.1".into())];
+        assert_eq!(remote.bytes_in, 500);
+        // The minute with the 9 GB closed and waits for the store.
+        let saved = e.bytes.take_unsaved();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(total(&saved[0].1), 9_000_000_000);
     }
 
     #[test]

@@ -16,6 +16,10 @@ TC programs keep a table of every flow on the primary interface, and on Tailscal
 
 netwatch also logs DNS queries and answers (with rcode and latency), listening sockets and who owns them, failed outbound connects, and new or closed listeners.
 
+## Totals over a window
+
+The Connections summary (bytes received and sent, and the top talkers) counts what moved within the window, not each connection's lifetime: a connection open for nine hours adds only its last hour to "1h". Windows up to an hour count by the minute; longer ones by whole hours, so "6h" at 10:42 starts at 04:00, and the tiles say so. Netwatch keeps the minutes of the last hour in memory, so for an hour after a restart the short windows only count from the restart.
+
 ## Querying flows
 
 ```shell
@@ -52,6 +56,6 @@ Set `sample_tcp_payload = false` (and `sample_dns = false`) to keep only counter
 
 ## Retention
 
-Live flows are in memory. Finished flows, DNS queries and connection events are stored in SQLite for `flow_retention_days` (default 7). Alerts and hourly per-source traffic are kept for `retention_days` (default 30).
+Live flows are in memory. Finished flows, DNS queries and connection events are stored in SQLite for `flow_retention_days` (default 7), and so are bytes per remote, process, service and country by hour (the busiest 500 of each per hour; the rest is added up as one). Alerts and hourly per-source traffic are kept for `retention_days` (default 30).
 
 The tracepoints see every network namespace. Sockets that belong neither to the host nor to a Docker container (for example in `ip netns`) are ignored.

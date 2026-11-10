@@ -4,7 +4,7 @@ import { connEventsPath, flowsPath, flowsSummaryPath, interfacesPath, usePoll, t
 import { StatTile, TimeChart, type ChartSeries } from "../components/charts";
 import { AppCell, DirArrow, FlowState, HostPort, ProcessCell, RemoteCell, RetransCell } from "../components/domain";
 import { Badge, Card, FilterInput, Flag, IpLink, LevelTag, PanelState, RankedList, RelTime, Segmented, Select, SortTh, Tabs, type RankItem, type Tone } from "../components/ui";
-import { fmtAbsolute, fmtBitrate, fmtBytes, fmtClock, fmtClockSec, fmtCompact, fmtDuration, fmtInt } from "../lib/format";
+import { fmtAbsolute, fmtBitrate, fmtBytes, fmtClock, fmtClockSec, fmtCompact, fmtDayHour, fmtDuration, fmtInt } from "../lib/format";
 import { useQueryState } from "../lib/router";
 
 // ---------------------------------------------------------------------------
@@ -262,6 +262,10 @@ function SummaryStrip({ s, dim, onFilter }: { s: FlowsSummary; dim: boolean; onF
     };
   });
 
+  // Beyond an hour the byte totals start on a whole hour; say which.
+  const hourly = !["5m", "15m", "1h"].includes(s.window);
+  const bytesSpan = hourly && s.bytes_since ? `since ${fmtDayHour(s.bytes_since)}` : `in ${s.window}`;
+
   return (
     <div className={`stack ${dim ? "dim" : ""}`}>
       <div className="tiles">
@@ -276,8 +280,8 @@ function SummaryStrip({ s, dim, onFilter }: { s: FlowsSummary; dim: boolean; onF
           context={s.failed > 0 ? undefined : "none"}
           trend={tail("failed")}
         />
-        <StatTile label="Received" value={fmtBytes(s.bytes_in)} context={`in ${s.window}`} trend={tail("bytes_in")} />
-        <StatTile label="Sent" value={fmtBytes(s.bytes_out)} context={`in ${s.window}`} trend={tail("bytes_out")} />
+        <StatTile label="Received" value={fmtBytes(s.bytes_in)} context={bytesSpan} trend={tail("bytes_in")} />
+        <StatTile label="Sent" value={fmtBytes(s.bytes_out)} context={bytesSpan} trend={tail("bytes_out")} />
         <StatTile label="Listening sockets" value={fmtCompact(s.listeners)} context="incl. loopback" href="#/listeners" />
       </div>
       <div className="grid-2 grid-wide-right">

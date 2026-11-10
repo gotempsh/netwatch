@@ -852,16 +852,22 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
         let bytes = if secs <= 3_600 {
             e.bytes.since(bytes_since)
         } else {
-            e.bytes.unstored()
+            // The tick stores closed minutes under the engine lock, so with it
+            // held each minute is either unstored or in the store, never both.
+            let mut bytes = e.bytes.unstored();
+            let stored = app
+                .store
+                .lock()
+                .unwrap()
+                .window_bytes(bytes_since)
+                .map_err(internal)?;
+            window::merge(&mut bytes, &stored);
+            bytes
         };
         (rows, e.flows.series.clone(), e.flows.listeners.len(), bytes)
     };
     let (past, failed) = {
         let store = app.store.lock().unwrap();
-        if secs > 3_600 {
-            let stored = store.window_bytes(bytes_since).map_err(internal)?;
-            window::merge(&mut bytes, &stored);
-        }
         // Finished flows in the window; capped so a busy week stays responsive.
         let past = store
             .flows(

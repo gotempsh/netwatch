@@ -194,7 +194,18 @@ impl Flow {
             _ => self.key.rport,
         }
     }
+
+    /// Whether the window totals can count this flow's bytes under its
+    /// process and service yet: once both are known, or after `SETTLE_SECS`
+    /// for flows that never get them.
+    fn settled(&self, now: i64) -> bool {
+        (self.owner.is_some() && self.dir != Dir::Unknown) || now - self.first_seen >= SETTLE_SECS
+    }
 }
+
+/// How long a new flow's bytes wait for its owner, which the /proc scan finds
+/// every 15 s for UDP sockets, and for its direction.
+const SETTLE_SECS: i64 = 20;
 
 /// What a UDP socket is used for, from what netwatch has observed. A bound,
 /// unconnected UDP socket is both a service and a resolver's source port until
@@ -1540,16 +1551,24 @@ impl FlowTable {
         )
     }
 
-    /// Open and finished flows that moved bytes the window totals don't have yet.
-    fn unfolded(&self) -> impl Iterator<Item = &Flow> {
+    /// Open flows that have settled (or all of them, with `all`) and finished
+    /// flows that moved bytes the window totals don't have yet.
+    fn unfolded(&self, now: i64, all: bool) -> impl Iterator<Item = &Flow> {
         self.active
             .values()
+            .filter(move |f| all || f.settled(now))
             .chain(&self.archive)
             .filter(|f| f.unfolded_in + f.unfolded_out > 0)
     }
 
-    fn clear_unfolded(&mut self) {
-        for f in self.active.values_mut().chain(&mut self.archive) {
+    /// Marks what `unfolded` returned as counted.
+    fn clear_unfolded(&mut self, now: i64, all: bool) {
+        for f in self
+            .active
+            .values_mut()
+            .filter(|f| all || f.settled(now))
+            .chain(&mut self.archive)
+        {
             f.unfolded_in = 0;
             f.unfolded_out = 0;
         }
@@ -1772,13 +1791,44 @@ impl crate::engine::Engine {
 
     /// Adds the bytes flows moved since the last call to the window totals;
     /// call it before `take_flow_archive`, which hands finished flows on.
-    pub fn fold_bytes(&mut self, now: i64) {
-        let moved: Vec<_> = self
-            .flows
-            .unfolded()
-            .map(|f| (self.flow_row(f, now, true), f.unfolded_in, f.unfolded_out))
-            .collect();
-        self.flows.clear_unfolded();
+    /// Bytes of a new flow wait until it settles, so they count under its
+    /// process and service; `all` counts them anyway (shutdown).
+    pub fn fold_bytes(&mut self, now: i64, all: bool) {
+        let mut moved = Vec::new();
+        for f in self.flows.unfolded(now, all) {
+            let (country, as_org) = if crate::util::is_public(f.remote) {
+                let geo = &self.geo;
+                self.bytes.place(f.remote, || {
+                    let g = geo.lookup(f.remote);
+                    (g.country_code, g.as_org)
+                })
+            } else {
+                (None, None)
+            };
+            let port = f.service_port();
+            // Only what `window::group_keys` and `ByteWindows::add` read.
+            let row = crate::store::FlowRow {
+                proto: proto_label(f.key.proto).to_string(),
+                remote: f.remote.to_string(),
+                dir: f.dir.as_str().to_string(),
+                process: f.owner.as_ref().map(|o| o.comm.clone()),
+                exe: f.owner.as_ref().and_then(|o| o.exe.clone()),
+                container: f.owner.as_ref().and_then(|o| o.container.clone()),
+                unit: f.owner.as_ref().and_then(|o| o.unit.clone()),
+                remote_name: f
+                    .name
+                    .clone()
+                    .or_else(|| self.flows.name_of(f.remote, now).map(str::to_string))
+                    .or_else(|| f.app.sni.clone()),
+                country,
+                as_org,
+                service_port: port,
+                service: crate::util::service_name(port).map(str::to_string),
+                ..Default::default()
+            };
+            moved.push((row, f.unfolded_in, f.unfolded_out));
+        }
+        self.flows.clear_unfolded(now, all);
         self.bytes.roll(now);
         for (row, bytes_in, bytes_out) in &moved {
             self.bytes.add(now, row, *bytes_in, *bytes_out);
@@ -2038,12 +2088,15 @@ mod tests {
         let now = crate::util::now_unix();
         e.flows
             .observe(vec![(k, st(9_000_000_000))], &[], &clock, now, 1.0);
-        e.fold_bytes(now);
-        let later = now + 120;
+        e.fold_bytes(now, false);
+        // Ownerless, so its bytes wait for the /proc scan, then count anyway.
+        assert!(e.bytes.since(0).is_empty());
+        e.fold_bytes(now + SETTLE_SECS, false);
+        let later = now + SETTLE_SECS + 120;
         e.flows
             .observe(vec![(k, st(9_000_000_500))], &[], &clock, later, 1.0);
-        e.fold_bytes(later);
-        e.fold_bytes(later); // nothing new moved
+        e.fold_bytes(later, false);
+        e.fold_bytes(later, false); // nothing new moved
         assert_eq!(e.flows.active[&k].bytes_in, 9_000_000_500);
         assert_eq!(total(&e.bytes.since(later - later % 60)), 500);
         assert_eq!(total(&e.bytes.since(0)), 9_000_000_500);
@@ -2053,6 +2106,53 @@ mod tests {
         let saved = e.bytes.take_unsaved();
         assert_eq!(saved.len(), 1);
         assert_eq!(total(&saved[0].1), 9_000_000_000);
+    }
+
+    #[test]
+    fn window_bytes_wait_for_the_flows_owner() {
+        let geo = crate::geo::Geo::open(
+            std::path::Path::new("/nonexistent/city.mmdb"),
+            std::path::Path::new("/nonexistent/asn.mmdb"),
+        );
+        let cfg = std::sync::Arc::new(crate::config::Config::default());
+        let mut e = crate::engine::Engine::new(cfg, geo, (32768, 60999));
+        let clock = BootClock::new();
+        let k = key("10.0.0.2", 51000, "1.1.1.1", 443, PROTO_UDP);
+        let ns = crate::util::boot_now_ns();
+        let st = |bytes_in| FlowStats {
+            bytes_in,
+            initiator: INIT_LOCAL,
+            first_seen_ns: ns,
+            last_seen_ns: ns,
+            ..Default::default()
+        };
+        let now = crate::util::now_unix();
+        e.flows.observe(vec![(k, st(700))], &[], &clock, now, 1.0);
+        e.fold_bytes(now, false);
+        // The scan finds the socket's process a few seconds later.
+        e.flows.active.get_mut(&k).unwrap().owner = owner(4_190_002, "firefox");
+        e.flows
+            .observe(vec![(k, st(1_000))], &[], &clock, now + 5, 1.0);
+        e.fold_bytes(now + 5, false);
+        let b = e.bytes.since(0);
+        assert_eq!(
+            b[&(crate::window::PROCESS, "firefox".into())].bytes_in,
+            1_000
+        );
+        assert!(!b.contains_key(&(crate::window::PROCESS, "unknown".into())));
+
+        // Shutdown counts what is still waiting.
+        let k2 = key("10.0.0.2", 51001, "1.1.1.1", 443, PROTO_UDP);
+        e.flows.observe(
+            vec![(k, st(1_000)), (k2, st(40))],
+            &[],
+            &clock,
+            now + 6,
+            1.0,
+        );
+        e.fold_bytes(now + 6, true);
+        let b = e.bytes.since(0);
+        assert_eq!(b[&(crate::window::PROCESS, "unknown".into())].bytes_in, 40);
     }
 
     #[test]

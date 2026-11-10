@@ -4,9 +4,13 @@
 //! read from them: a connection open for nine hours would count all nine in
 //! "last 1h". Each tick adds what flows moved since the previous one. The last
 //! hour stays here by minute; every closed minute also goes to the store, which
-//! keeps it by hour (`Store::add_window_bytes`).
+//! keeps the last hour by minute, to come back after a restart, and everything
+//! by hour (`Store::add_window_bytes`).
 
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    net::IpAddr,
+};
 
 use crate::store::FlowRow;
 
@@ -82,8 +86,30 @@ pub fn group_keys(f: &FlowRow) -> [(u8, String, Option<String>); 4] {
     ]
 }
 
+/// Adds bytes flow `f` moved to each of its groups and the total.
+pub fn add_flow(b: &mut Bucket, f: &FlowRow, bytes_in: u64, bytes_out: u64) {
+    let moved = |label: Option<String>| Bytes {
+        bytes_in,
+        bytes_out,
+        label,
+        country: None,
+        as_org: None,
+    };
+    for (dim, key, label) in group_keys(f) {
+        let mut v = moved(label);
+        if dim == REMOTE {
+            v.country.clone_from(&f.country);
+            v.as_org.clone_from(&f.as_org);
+        }
+        b.entry((dim, key)).or_default().add(&v);
+    }
+    b.entry((TOTAL, String::new()))
+        .or_default()
+        .add(&moved(None));
+}
+
 /// Keeps the `KEEP` biggest keys of each dimension and adds the rest up under "".
-fn cap(b: Bucket) -> Bucket {
+pub fn cap(b: Bucket) -> Bucket {
     let mut per_dim: HashMap<u8, Vec<(String, Bytes)>> = HashMap::new();
     let mut out = Bucket::new();
     for ((dim, key), v) in b {
@@ -115,31 +141,19 @@ pub struct ByteWindows {
     current: Option<(i64, Bucket)>,
     /// Closed minutes the store hasn't got yet.
     unsaved: Vec<(i64, Bucket)>,
+    /// Country and AS organisation per remote address, for `fold_bytes`.
+    places: HashMap<IpAddr, (Option<String>, Option<String>)>,
 }
+
+/// Addresses kept in `ByteWindows::place`'s cache before it starts over.
+const PLACES: usize = 20_000;
 
 impl ByteWindows {
     /// Counts `bytes_in`/`bytes_out` that flow `f` moved by `now`.
     pub fn add(&mut self, now: i64, f: &FlowRow, bytes_in: u64, bytes_out: u64) {
         self.roll(now);
         let (_, b) = self.current.as_mut().expect("rolled");
-        let moved = |label: Option<String>| Bytes {
-            bytes_in,
-            bytes_out,
-            label,
-            country: None,
-            as_org: None,
-        };
-        for (dim, key, label) in group_keys(f) {
-            let mut v = moved(label);
-            if dim == REMOTE {
-                v.country.clone_from(&f.country);
-                v.as_org.clone_from(&f.as_org);
-            }
-            b.entry((dim, key)).or_default().add(&v);
-        }
-        b.entry((TOTAL, String::new()))
-            .or_default()
-            .add(&moved(None));
+        add_flow(b, f, bytes_in, bytes_out);
     }
 
     /// Closes the current minute once `now` is in a later one.
@@ -156,9 +170,29 @@ impl ByteWindows {
         }
     }
 
+    /// Puts back minutes the store kept (after a restart), as saved.
+    pub fn restore(&mut self, minutes: Vec<(i64, Bucket)>) {
+        self.minutes.extend(minutes);
+        self.minutes.make_contiguous().sort_by_key(|(t, _)| *t);
+    }
+
+    /// Country and AS organisation of `ip`, looked up once per address.
+    pub fn place(
+        &mut self,
+        ip: IpAddr,
+        lookup: impl FnOnce() -> (Option<String>, Option<String>),
+    ) -> (Option<String>, Option<String>) {
+        if self.places.len() >= PLACES && !self.places.contains_key(&ip) {
+            self.places.clear();
+        }
+        self.places.entry(ip).or_insert_with(lookup).clone()
+    }
+
     /// Closes the current minute now (shutdown).
     pub fn close(&mut self) {
-        if let Some((t, b)) = self.current.take() {
+        if let Some((t, b)) = self.current.take()
+            && !b.is_empty()
+        {
             let b = cap(b);
             self.unsaved.push((t, b.clone()));
             self.minutes.push_back((t, b));
@@ -239,6 +273,25 @@ mod tests {
         assert!(w.take_unsaved().is_empty());
         w.close();
         assert_eq!(total(&w.take_unsaved()[0].1), (7, 1));
+    }
+
+    #[test]
+    fn restored_minutes_count_and_are_not_saved_again() {
+        let mut w = ByteWindows::default();
+        let a = row("192.0.2.1", "curl");
+        let mut b = Bucket::new();
+        b.insert(
+            (TOTAL, String::new()),
+            Bytes {
+                bytes_in: 5,
+                ..Default::default()
+            },
+        );
+        w.restore(vec![(960, b.clone()), (900, b)]);
+        w.add(1_000, &a, 1, 0);
+        assert_eq!(total(&w.since(900)), (11, 0));
+        assert_eq!(total(&w.since(960)), (6, 0));
+        assert!(w.take_unsaved().is_empty());
     }
 
     #[test]

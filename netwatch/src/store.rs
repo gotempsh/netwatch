@@ -203,6 +203,37 @@ pub fn owner_key(container: Option<&str>, unit: Option<&str>, process: Option<&s
     }
 }
 
+/// Adds `b` into the window totals table `table`, at `ts` in column `col`.
+fn upsert_bytes(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+    col: &str,
+    ts: i64,
+    b: &Bucket,
+) -> anyhow::Result<()> {
+    let mut stmt = tx.prepare_cached(&format!(
+        "INSERT INTO {table} ({col}, dim, key, label, country, as_org, bytes_in, bytes_out)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+         ON CONFLICT({col}, dim, key) DO UPDATE SET
+           bytes_in = bytes_in + excluded.bytes_in, bytes_out = bytes_out + excluded.bytes_out,
+           label = COALESCE(label, excluded.label), country = COALESCE(country, excluded.country),
+           as_org = COALESCE(as_org, excluded.as_org)"
+    ))?;
+    for ((dim, key), v) in b {
+        stmt.execute(params![
+            ts,
+            dim,
+            key,
+            v.label,
+            v.country,
+            v.as_org,
+            v.bytes_in as i64,
+            v.bytes_out as i64
+        ])?;
+    }
+    Ok(())
+}
+
 /// Filters for flow history; every field is optional.
 #[derive(Debug, Default, Clone)]
 pub struct FlowFilter {
@@ -264,6 +295,11 @@ impl Store {
             std::fs::create_dir_all(dir).ok();
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let new_window_table = !conn
+            .prepare(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'flow_bytes_hourly'",
+            )?
+            .exists([])?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
@@ -326,7 +362,11 @@ impl Store {
              CREATE TABLE IF NOT EXISTS flow_bytes_hourly (
                 hour INTEGER NOT NULL, dim INTEGER NOT NULL, key TEXT NOT NULL, label TEXT,
                 country TEXT, as_org TEXT, bytes_in INTEGER NOT NULL, bytes_out INTEGER NOT NULL,
-                PRIMARY KEY (hour, dim, key));",
+                PRIMARY KEY (hour, dim, key));
+             CREATE TABLE IF NOT EXISTS flow_bytes_minute (
+                minute INTEGER NOT NULL, dim INTEGER NOT NULL, key TEXT NOT NULL, label TEXT,
+                country TEXT, as_org TEXT, bytes_in INTEGER NOT NULL, bytes_out INTEGER NOT NULL,
+                PRIMARY KEY (minute, dim, key));",
         )?;
         // Columns added after the first release of a table.
         for (table, col, decl) in [
@@ -346,7 +386,11 @@ impl Store {
                 conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl}"))?;
             }
         }
-        Ok(Self { conn })
+        let mut store = Self { conn };
+        if new_window_table {
+            store.backfill_window_bytes()?;
+        }
+        Ok(store)
     }
 
     /// Repeated detections of the same kind for an IP within 30 minutes extend one alert.
@@ -891,33 +935,124 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Adds closed minutes (see window.rs) to their hours.
+    /// Adds closed minutes to the hourly totals, and to the last hour's
+    /// minutes, which come back after a restart (`window_minutes`).
     pub fn add_window_bytes(&mut self, minutes: &[(i64, Bucket)]) -> anyhow::Result<()> {
+        let Some(newest) = minutes.iter().map(|(t, _)| *t).max() else {
+            return Ok(());
+        };
         let tx = self.conn.transaction()?;
-        {
-            let mut stmt = tx.prepare_cached(
-                "INSERT INTO flow_bytes_hourly (hour, dim, key, label, country, as_org, bytes_in, bytes_out)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
-                 ON CONFLICT(hour, dim, key) DO UPDATE SET
-                   bytes_in = bytes_in + excluded.bytes_in, bytes_out = bytes_out + excluded.bytes_out,
-                   label = COALESCE(label, excluded.label), country = COALESCE(country, excluded.country),
-                   as_org = COALESCE(as_org, excluded.as_org)",
+        for (ts, b) in minutes {
+            upsert_bytes(
+                &tx,
+                "flow_bytes_hourly",
+                "hour",
+                ts - ts.rem_euclid(3600),
+                b,
             )?;
-            for (ts, b) in minutes {
-                let hour = ts - ts.rem_euclid(3600);
-                for ((dim, key), v) in b {
-                    stmt.execute(params![
-                        hour,
-                        dim,
-                        key,
-                        v.label,
-                        v.country,
-                        v.as_org,
-                        v.bytes_in as i64,
-                        v.bytes_out as i64
-                    ])?;
+            upsert_bytes(&tx, "flow_bytes_minute", "minute", *ts, b)?;
+        }
+        tx.execute(
+            "DELETE FROM flow_bytes_minute WHERE minute < ?1",
+            params![newest - 3600],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The stored minutes starting at or after `since`, oldest first.
+    pub fn window_minutes(&self, since: i64) -> anyhow::Result<Vec<(i64, Bucket)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT minute, dim, key, label, country, as_org, bytes_in, bytes_out
+             FROM flow_bytes_minute WHERE minute >= ?1 ORDER BY minute",
+        )?;
+        let rows = stmt.query_map(params![since], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                (r.get::<_, u8>(1)?, r.get::<_, String>(2)?),
+                Bytes {
+                    label: r.get(3)?,
+                    country: r.get(4)?,
+                    as_org: r.get(5)?,
+                    bytes_in: r.get::<_, i64>(6)? as u64,
+                    bytes_out: r.get::<_, i64>(7)? as u64,
+                },
+            ))
+        })?;
+        let mut out: Vec<(i64, Bucket)> = Vec::new();
+        for row in rows {
+            let (minute, key, v) = row?;
+            if out.last().is_none_or(|(m, _)| *m != minute) {
+                out.push((minute, Bucket::new()));
+            }
+            out.last_mut().expect("pushed").1.insert(key, v);
+        }
+        Ok(out)
+    }
+
+    /// Fills the window totals from the stored flows once, when an upgrade
+    /// adds them: each flow counts in the hour and minute it ended in.
+    fn backfill_window_bytes(&mut self) -> anyhow::Result<()> {
+        let newest: Option<i64> =
+            self.conn
+                .query_row("SELECT MAX(last_seen) FROM flows", [], |r| r.get(0))?;
+        let Some(newest) = newest else {
+            return Ok(());
+        };
+        let mut hours: std::collections::BTreeMap<i64, Bucket> = Default::default();
+        let mut minutes: std::collections::BTreeMap<i64, Bucket> = Default::default();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT last_seen, remote, remote_name, country, as_org, container, unit, process,
+                        exe, service_port, proto, dir, bytes_in, bytes_out FROM flows",
+            )?;
+            let mut rows = stmt.query([])?;
+            while let Some(r) = rows.next()? {
+                let ended: i64 = r.get(0)?;
+                let port: u16 = r.get(9)?;
+                let f = FlowRow {
+                    remote: r.get(1)?,
+                    remote_name: r.get(2)?,
+                    country: r.get(3)?,
+                    as_org: r.get(4)?,
+                    container: r.get(5)?,
+                    unit: r.get(6)?,
+                    process: r.get(7)?,
+                    exe: r.get(8)?,
+                    service_port: port,
+                    service: crate::util::service_name(port).map(str::to_string),
+                    proto: r.get(10)?,
+                    dir: r.get(11)?,
+                    ..Default::default()
+                };
+                let (bytes_in, bytes_out) =
+                    (r.get::<_, i64>(12)? as u64, r.get::<_, i64>(13)? as u64);
+                let hour = hours.entry(ended - ended.rem_euclid(3600)).or_default();
+                crate::window::add_flow(hour, &f, bytes_in, bytes_out);
+                if ended >= newest - 3600 {
+                    let minute = minutes.entry(ended - ended.rem_euclid(60)).or_default();
+                    crate::window::add_flow(minute, &f, bytes_in, bytes_out);
                 }
             }
+        }
+        let tx = self.conn.transaction()?;
+        for (hour, b) in hours {
+            upsert_bytes(
+                &tx,
+                "flow_bytes_hourly",
+                "hour",
+                hour,
+                &crate::window::cap(b),
+            )?;
+        }
+        for (minute, b) in minutes {
+            upsert_bytes(
+                &tx,
+                "flow_bytes_minute",
+                "minute",
+                minute,
+                &crate::window::cap(b),
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -944,16 +1079,17 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Hours before `before_hour` keep their `KEEP` biggest keys per dimension;
-    /// the rest is added up under "". Minutes are capped one at a time, so an
-    /// hour can collect more keys than that.
-    pub fn compact_window_bytes(&mut self, before_hour: i64) -> anyhow::Result<()> {
+    /// Hours from `from_hour` up to `before_hour` keep their `KEEP` biggest
+    /// keys per dimension; the rest is added up under "". Minutes are capped one
+    /// at a time, so an hour can collect more keys than that. An hour only
+    /// needs this once, after it ends.
+    pub fn compact_window_bytes(&mut self, from_hour: i64, before_hour: i64) -> anyhow::Result<()> {
         let crowded: Vec<(i64, u8)> = {
             let mut stmt = self.conn.prepare_cached(
-                "SELECT hour, dim FROM flow_bytes_hourly WHERE hour < ?1 AND key != ''
-                 GROUP BY hour, dim HAVING COUNT(*) > ?2",
+                "SELECT hour, dim FROM flow_bytes_hourly WHERE hour >= ?1 AND hour < ?2 AND key != ''
+                 GROUP BY hour, dim HAVING COUNT(*) > ?3",
             )?;
-            stmt.query_map(params![before_hour, KEEP as i64], |r| {
+            stmt.query_map(params![from_hour, before_hour, KEEP as i64], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })?
             .collect::<Result<_, _>>()?
@@ -1380,9 +1516,9 @@ mod tests {
                 ((REMOTE, format!("r{i:04}")), v)
             })
             .collect();
-        s.add_window_bytes(&[(0, many)]).unwrap();
+        s.add_window_bytes(&[(0, many.clone())]).unwrap();
         for _ in 0..2 {
-            s.compact_window_bytes(3_600).unwrap();
+            s.compact_window_bytes(i64::MIN, 3_600).unwrap();
             let h = s.window_bytes(0).unwrap();
             let named = h
                 .keys()
@@ -1392,12 +1528,106 @@ mod tests {
             assert_eq!(h[&(REMOTE, String::new())].bytes_in, 100 + 101 + 102);
         }
         // The current hour isn't compacted.
-        s.compact_window_bytes(0).unwrap();
+        s.compact_window_bytes(i64::MIN, 0).unwrap();
+        // Nor are hours before `from_hour`, compacted on an earlier pass.
+        let crowded = |s: &Store, hour: i64| {
+            s.window_bytes(hour)
+                .unwrap()
+                .keys()
+                .filter(|(d, k)| *d == REMOTE && k.starts_with('r'))
+                .count()
+        };
+        s.add_window_bytes(&[(36_000, many)]).unwrap();
+        s.compact_window_bytes(3_600, 36_000).unwrap();
+        assert_eq!(crowded(&s, 36_000), KEEP + 3);
+        s.compact_window_bytes(3_600, 39_600).unwrap();
+        assert_eq!(crowded(&s, 36_000), KEEP);
+        s.conn
+            .execute("DELETE FROM flow_bytes_hourly WHERE hour = 36000", [])
+            .unwrap();
 
         s.prune_flows(1, 86_400 + 7_201).unwrap();
         let left = s.window_bytes(0).unwrap();
         assert!(!left.contains_key(&(REMOTE, String::new())));
         assert_eq!(left[&(TOTAL, String::new())].bytes_in, 18);
+    }
+
+    #[test]
+    fn the_last_hour_of_minutes_comes_back() {
+        use crate::window::TOTAL;
+        let mut s = Store::open(Path::new(":memory:")).unwrap();
+        let b = |n: u64| -> Bucket {
+            [(
+                (TOTAL, String::new()),
+                Bytes {
+                    bytes_in: n,
+                    ..Default::default()
+                },
+            )]
+            .into()
+        };
+        s.add_window_bytes(&[(60, b(1)), (120, b(2))]).unwrap();
+        s.add_window_bytes(&[(120, b(3)), (3_720, b(4))]).unwrap();
+        // Older than an hour before the newest minute: gone.
+        let m = s.window_minutes(0).unwrap();
+        let got: Vec<(i64, u64)> = m
+            .iter()
+            .map(|(t, b)| (*t, b[&(TOTAL, String::new())].bytes_in))
+            .collect();
+        assert_eq!(got, [(120, 5), (3_720, 4)]);
+        assert_eq!(s.window_minutes(121).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_upgrade_fills_the_window_totals_from_stored_flows() {
+        use crate::window::{PROCESS, TOTAL};
+        let path =
+            std::env::temp_dir().join(format!("netwatch-backfill-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let flow = |ended: i64, process: &str, bytes_in: u64| FlowRow {
+            proto: "tcp".into(),
+            remote: "192.0.2.1".into(),
+            dir: "out".into(),
+            first_seen: ended - 10,
+            last_seen: ended,
+            bytes_in,
+            process: Some(process.into()),
+            service_port: 443,
+            ..Default::default()
+        };
+        {
+            // A database from before the window totals.
+            let mut s = Store::open(&path).unwrap();
+            s.add_flows(&[
+                flow(7_300, "curl", 100),
+                flow(7_390, "peer", 50),
+                flow(20_000, "curl", 7),
+            ])
+            .unwrap();
+            s.conn
+                .execute_batch("DROP TABLE flow_bytes_hourly; DROP TABLE flow_bytes_minute;")
+                .unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        let hour = s.window_bytes(7_200).unwrap();
+        assert_eq!(hour[&(TOTAL, String::new())].bytes_in, 157);
+        assert_eq!(hour[&(PROCESS, "curl".into())].bytes_in, 107);
+        assert_eq!(
+            s.window_bytes(10_800).unwrap()[&(TOTAL, String::new())].bytes_in,
+            7
+        );
+        // Only the hour before the newest flow comes back by minute.
+        let m = s.window_minutes(0).unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].0, 19_980);
+        drop(s);
+        // Opening it again doesn't count anything twice.
+        let s = Store::open(&path).unwrap();
+        assert_eq!(
+            s.window_bytes(0).unwrap()[&(TOTAL, String::new())].bytes_in,
+            157
+        );
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

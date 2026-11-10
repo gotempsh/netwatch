@@ -3,7 +3,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -47,6 +50,8 @@ pub struct App {
     /// Interface addresses, refreshed once a minute.
     if_addrs: Mutex<BTreeMap<String, Vec<String>>>,
     pub notify: Notifier,
+    /// Hours before this one are compacted already (`Store::compact_window_bytes`).
+    window_compacted: AtomicI64,
 }
 
 /// Interfaces that should carry the flow programs right now.
@@ -122,6 +127,10 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     let attached: BTreeSet<String> = kernel.attached.keys().cloned().collect();
 
     let mut engine = Engine::new(cfg.clone(), geo, eph);
+    // The last hour's byte totals, so short windows survive a restart.
+    engine
+        .bytes
+        .restore(store.window_minutes(now_unix() - 3_600)?);
     engine.observe_ifaces(ifl, &attached, 1.0);
     if let Some(p) = store.policy()? {
         match serde_json::from_str::<Vec<Rule>>(&p.rules) {
@@ -150,6 +159,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         scan_owners: Mutex::new(OwnerCache::default()),
         if_addrs: Mutex::new(if_addrs),
         notify,
+        window_compacted: AtomicI64::new(i64::MIN),
     });
     app.notify.send(
         Level::Info,
@@ -213,7 +223,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     let now = now_unix();
     let (rows, dns, events, minutes) = {
         let mut e = app.engine.lock().unwrap();
-        e.fold_bytes(now);
+        e.fold_bytes(now, true);
         e.bytes.close();
         let (mut rows, dns, events) = e.take_flow_archive(now);
         rows.extend(e.drain_flows(now));
@@ -375,17 +385,7 @@ impl App {
                 attached,
             )
         };
-        let (
-            alerts,
-            ipopt,
-            hours,
-            decisions,
-            subnets,
-            flow_delete,
-            health_delete,
-            archived,
-            minutes,
-        ) = {
+        let (alerts, ipopt, hours, decisions, subnets, flow_delete, health_delete, archived) = {
             let mut e = self.engine.lock().unwrap();
             if periodic {
                 e.listening = intel::Listening::scan();
@@ -404,8 +404,13 @@ impl App {
             } else {
                 Vec::new()
             };
-            e.fold_bytes(now);
+            e.fold_bytes(now, false);
+            // Stored before the engine unlocks: a summary reads both under the
+            // engine lock, so it never finds a closed minute in neither or both.
             let minutes = e.bytes.take_unsaved();
+            if !minutes.is_empty() {
+                self.store.lock().unwrap().add_window_bytes(&minutes)?;
+            }
             let archived = e.take_flow_archive(now);
             e.observe_global(global, now, dt);
             e.observe_sources(sources, now, dt);
@@ -436,7 +441,6 @@ impl App {
                 flow_delete,
                 health_delete,
                 archived,
-                minutes,
             )
         };
         let mitigation = if ipopt.is_empty() {
@@ -490,9 +494,6 @@ impl App {
                 store.add_conn_events(events)?;
                 self.notify_listeners(events);
             }
-            if !minutes.is_empty() {
-                store.add_window_bytes(&minutes)?;
-            }
             for a in &alerts {
                 store.upsert_alert(&a.ip, a.kind, a.score, &a.summary, &a.location, now)?;
             }
@@ -515,7 +516,10 @@ impl App {
             if periodic {
                 store.prune(self.cfg.retention_days, now)?;
                 store.prune_flows(self.cfg.flow_retention_days, now)?;
-                store.compact_window_bytes(now - now.rem_euclid(3600))?;
+                let hour = now - now.rem_euclid(3600);
+                let from = self.window_compacted.load(Ordering::Relaxed);
+                store.compact_window_bytes(from, hour)?;
+                self.window_compacted.store(hour, Ordering::Relaxed);
             }
         }
 

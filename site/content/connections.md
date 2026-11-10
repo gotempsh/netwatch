@@ -18,7 +18,7 @@ netwatch also logs DNS queries and answers (with rcode and latency), listening s
 
 ## Totals over a window
 
-The Connections summary (bytes received and sent, and the top talkers) counts what moved within the window, not each connection's lifetime: a connection open for nine hours adds only its last hour to "1h". Windows up to an hour count by the minute; longer ones by whole hours, so "6h" at 10:42 starts at 04:00, and the tiles say so. Netwatch keeps the minutes of the last hour in memory, so for an hour after a restart the short windows only count from the restart.
+The Connections summary (bytes received and sent, and the top talkers) counts what moved within the window, not each connection's lifetime: a connection open for nine hours adds only its last hour to "1h". Windows up to an hour count by the minute; longer ones by whole hours, so "6h" at 10:42 starts at 04:00, and the tiles say so. A new connection's bytes are counted once netwatch knows its process (within about 20 seconds), so they land under that process and not under `unknown`. After upgrading from a version without these totals, the hours before the upgrade count each connection in the hour it ended.
 
 ## Querying flows
 

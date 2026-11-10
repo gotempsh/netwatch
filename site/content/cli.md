@@ -83,7 +83,7 @@ Read-only commands query the daemon's API on `127.0.0.1:9180` and need no root. 
 - `--reason <text>`
 - `--force`: allow very large ranges and non-public addresses
 
-Durations print the way `--ttl` takes them: `7d`, `6d 23h`, `1m 14s`. Reasons longer than the column end in `…`; `netwatch ip <ip>` shows them in full.
+TTLs print the way `--ttl` takes them (`7d`, `1d 30m`); countdowns and uptimes keep the two largest units (`in 6d 23h`). Reasons longer than the column end in `…`; `netwatch ip <ip>` shows them in full.
 
 ## Policy and AI
 

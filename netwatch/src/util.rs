@@ -211,8 +211,17 @@ pub fn parse_duration(s: &str) -> anyhow::Result<i64> {
     Ok(d.as_secs() as i64)
 }
 
-/// `7d`, `6d 23h`, `1m 14s`: the two largest units, written the way `--ttl` takes them.
+/// `7d`, `1d 30m`, `1m 14s`: exact, written the way `--ttl` takes them.
 pub fn fmt_secs(secs: i64) -> String {
+    units(secs, 4)
+}
+
+/// The two largest units (`6d 23h`), for uptimes and countdowns where the rest is noise.
+pub fn fmt_approx(secs: i64) -> String {
+    units(secs, 2)
+}
+
+fn units(secs: i64, max: usize) -> String {
     let s = secs.max(0);
     let units = [
         (s / 86400, "d"),
@@ -223,7 +232,7 @@ pub fn fmt_secs(secs: i64) -> String {
     let first = units.iter().position(|(n, _)| *n > 0).unwrap_or(3);
     units[first..]
         .iter()
-        .take(2)
+        .take(max)
         .filter(|(n, _)| *n > 0 || first == 3)
         .map(|(n, u)| format!("{n}{u}"))
         .collect::<Vec<_>>()
@@ -263,12 +272,16 @@ mod tests {
     #[test]
     fn durations_read_like_ttls() {
         assert_eq!(fmt_secs(7 * 86400), "7d");
-        assert_eq!(fmt_secs(7 * 86400 - 16), "6d 23h");
-        assert_eq!(fmt_secs(3600), "1h");
+        assert_eq!(fmt_secs(86400 + 1800), "1d 30m");
+        assert_eq!(fmt_secs(7245), "2h 45s");
         assert_eq!(fmt_secs(74), "1m 14s");
         assert_eq!(fmt_secs(0), "0s");
         assert_eq!(fmt_secs(-5), "0s");
+        assert_eq!(fmt_approx(7 * 86400 - 16), "6d 23h");
+        assert_eq!(fmt_approx(3601), "1h");
         // What it prints, `--ttl` takes back.
-        assert_eq!(parse_duration(&fmt_secs(7 * 86400)).unwrap(), 7 * 86400);
+        for t in [7 * 86400, 86400 + 1800, 7245, 90061] {
+            assert_eq!(parse_duration(&fmt_secs(t)).unwrap(), t);
+        }
     }
 }

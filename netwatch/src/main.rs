@@ -344,7 +344,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 o["interface"].as_str().unwrap_or("?"),
                 o["attach_mode"].as_str().unwrap_or("?"),
                 o["mode"].as_str().unwrap_or("?"),
-                util::fmt_secs(
+                util::fmt_approx(
                     o["now"].as_i64().unwrap_or(0) - o["started_at"].as_i64().unwrap_or(0)
                 )
             );
@@ -850,7 +850,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         b["target"].as_str().unwrap_or("").into(),
                         b["source"].as_str().unwrap_or("").into(),
                         b["expires"].as_i64().map_or("never".into(), |e| {
-                            format!("in {}", util::fmt_secs(e - now))
+                            format!("in {}", util::fmt_approx(e - now))
                         }),
                         b["dropped"].to_string(),
                         truncate(b["reason"].as_str().unwrap_or(""), 80),
@@ -1134,7 +1134,7 @@ fn print_flows(list: &Value, live: bool) {
             if live {
                 fmt_bps(rate * 8.0)
             } else {
-                util::fmt_secs(
+                util::fmt_approx(
                     fl["last_seen"].as_i64().unwrap_or(0) - fl["first_seen"].as_i64().unwrap_or(0),
                 )
             },

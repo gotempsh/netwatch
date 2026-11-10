@@ -34,7 +34,7 @@ metrics = true
 logs = true                          # events as log records
 ```
 
-Restart netwatch. The log says `opentelemetry: sending metrics and events to …`.
+Restart netwatch. Its log then names the endpoint, in a line starting `opentelemetry: sending`.
 
 ## Check that it arrives
 

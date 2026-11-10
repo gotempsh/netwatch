@@ -1285,8 +1285,11 @@ impl Store {
 
     /// Returns false when the event was already stored (journal replay after restart).
     pub fn add_ssh_event(&self, e: &SshEventRow) -> anyhow::Result<bool> {
+        // The UNIQUE key alone lets rows with no user or method in twice: NULLs never match.
         Ok(self.conn.execute(
-            "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location) VALUES (?1,?2,?3,?4,?5,?6)",
+            "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location)
+             SELECT ?1,?2,?3,?4,?5,?6 WHERE NOT EXISTS (SELECT 1 FROM ssh_events
+               WHERE ts=?1 AND kind=?2 AND ip=?4 AND user IS ?3 AND method IS ?5)",
             params![e.ts, e.kind, e.user, e.ip, e.method, e.location],
         )? > 0)
     }
@@ -1724,5 +1727,30 @@ mod tests {
         .unwrap();
         assert_eq!(s.failed_connects(0).unwrap(), 2);
         assert_eq!(s.failed_connects(150).unwrap(), 1);
+    }
+
+    #[test]
+    fn replayed_ssh_lines_are_stored_once() {
+        let s = Store::open(Path::new(":memory:")).unwrap();
+        let ev = |kind: &str, user: Option<&str>, method: Option<&str>| SshEventRow {
+            ts: 100,
+            kind: kind.into(),
+            user: user.map(str::to_string),
+            ip: "203.0.113.9".into(),
+            method: method.map(str::to_string),
+            location: String::new(),
+        };
+        for e in [
+            ev("invalid_user", Some("admin"), None),
+            ev("invalid_user", None, None),
+            ev("failed", Some("root"), Some("password")),
+        ] {
+            assert!(s.add_ssh_event(&e).unwrap());
+            assert!(!s.add_ssh_event(&e).unwrap());
+        }
+        assert!(
+            s.add_ssh_event(&ev("invalid_user", Some("oracle"), None))
+                .unwrap()
+        );
     }
 }

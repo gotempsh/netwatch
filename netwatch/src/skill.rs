@@ -27,20 +27,28 @@ pub fn install(dir: &Path) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
-/// The one line `netwatch skill --install` prints. `sudo_user` is who ran it
-/// through sudo, whose own skills directory this didn't touch.
-pub fn installed_message(path: &Path, sudo_user: Option<&str>) -> String {
-    let mut line = format!(
+/// Refuses to install into a home directory as root through sudo. Depending
+/// on sudoers, HOME is root's or still the caller's; in the caller's home the
+/// files would belong to root and a later install without sudo couldn't
+/// replace them.
+pub fn refuse_sudo(sudo_user: Option<&str>) -> anyhow::Result<()> {
+    match sudo_user {
+        Some(user) => anyhow::bail!(
+            "not installing the skill through sudo: run `netwatch skill --install` \
+             without sudo to install it for {user}, or pass --dir to choose where \
+             root installs it"
+        ),
+        None => Ok(()),
+    }
+}
+
+/// The one line `netwatch skill --install` prints.
+pub fn installed_message(path: &Path) -> String {
+    format!(
         "installed the netwatch {} skill at {}",
         env!("CARGO_PKG_VERSION"),
         path.display()
-    );
-    if let Some(user) = sudo_user {
-        line.push_str(&format!(
-            "; that is root's, run it without sudo to install it for {user}"
-        ));
-    }
-    line
+    )
 }
 
 #[cfg(test)]
@@ -179,14 +187,24 @@ mod tests {
     #[test]
     fn install_message() {
         let p = Path::new("/home/ana/.claude/skills/netwatch/SKILL.md");
-        let v = env!("CARGO_PKG_VERSION");
         assert_eq!(
-            installed_message(p, None),
-            format!("installed the netwatch {v} skill at {}", p.display())
+            installed_message(p),
+            format!(
+                "installed the netwatch {} skill at {}",
+                env!("CARGO_PKG_VERSION"),
+                p.display()
+            )
         );
-        assert!(
-            installed_message(p, Some("ana"))
-                .ends_with("; that is root's, run it without sudo to install it for ana")
+    }
+
+    #[test]
+    fn refuses_to_install_through_sudo() {
+        assert!(refuse_sudo(None).is_ok());
+        assert_eq!(
+            refuse_sudo(Some("ana")).unwrap_err().to_string(),
+            "not installing the skill through sudo: run `netwatch skill --install` \
+             without sudo to install it for ana, or pass --dir to choose where root \
+             installs it"
         );
     }
 }

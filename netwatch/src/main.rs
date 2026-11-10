@@ -277,13 +277,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         }
         let path = match dir {
             Some(d) => skill::install(d)?,
-            None => skill::install(&skill::default_dir()?)?,
+            None => {
+                let sudo_user = std::env::var("SUDO_USER")
+                    .ok()
+                    .filter(|_| unsafe { libc::geteuid() } == 0);
+                skill::refuse_sudo(sudo_user.as_deref())?;
+                skill::install(&skill::default_dir()?)?
+            }
         };
-        // Under sudo, HOME is root's: say whose skills directory this was.
-        let sudo_user = std::env::var("SUDO_USER")
-            .ok()
-            .filter(|_| dir.is_none() && unsafe { libc::geteuid() } == 0);
-        eprintln!("{}", skill::installed_message(&path, sudo_user.as_deref()));
+        eprintln!("{}", skill::installed_message(&path));
         return Ok(());
     }
     #[cfg(target_os = "macos")]

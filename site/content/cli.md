@@ -116,4 +116,4 @@ netwatch skill --install --dir .claude/skills  # one project only
 netwatch skill                                 # print it, to put it anywhere else
 ```
 
-The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it without `sudo`, or it lands in root's home. Agents that add skills from a GitHub repository can also take it from [`skills/netwatch`](https://github.com/gotempsh/netwatch/tree/main/skills/netwatch).
+The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it as yourself: under `sudo` it refuses unless you pass `--dir`, because the files would belong to root. Agents that add skills from a GitHub repository can also take it from [`skills/netwatch`](https://github.com/gotempsh/netwatch/tree/main/skills/netwatch).

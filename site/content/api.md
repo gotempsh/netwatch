@@ -17,7 +17,7 @@ curl -s 'http://127.0.0.1:9180/api/sources?flagged=1&limit=10' | jq '.[].ip'
 | `/api/overview` | host, mode, rates, counts and the attached interfaces | |
 | `/api/insights` | current insights with their commands | |
 | `/api/sources` | tracked sources with score, findings, geo and ban state | `sort`, `flagged`, `port`, `q`, `limit`, `all` |
-| `/api/sources/{ip}` | one source in full: findings, feeds, ports, SSH, alerts, proposals, history | |
+| `/api/sources/{ip}` | one source in full: findings, feeds, ports, its 200 latest SSH events and its 50 latest accepted logins (`ssh_logins`), which newer failures can't push out, alerts, proposals, history | |
 | `/api/alerts` | findings over time | `since`, `ip`, `limit` |
 | `/api/ssh` | SSH events | `since`, `ip`, `limit` |
 | `/api/bans` | active bans; `matched` counts the packets that hit each ban, `dropped` the ones it dropped (0 when bans don't drop: `drop_banned = false`, or macOS without pf) | |

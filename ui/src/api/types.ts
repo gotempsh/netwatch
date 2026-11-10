@@ -90,6 +90,8 @@ export interface SourceDetail extends Source {
   alerts: Alert[];
   history: HourPoint[]; // last 7 days, hourly
   ssh_events: SshEvent[];
+  /** Accepted logins, which newer failures can't push out of `ssh_events`' 200 (missing from older daemons). */
+  ssh_logins?: SshEvent[];
   ban: Ban | null;
   proposals: Proposal[];
   /** Active flows first, then finished flows from the last 7 days (newest first). */

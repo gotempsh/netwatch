@@ -90,6 +90,16 @@ export default function App() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    // On a phone the page tabs scroll sideways; keep the current one in view,
+    // clear of the fade at the right edge.
+    const nav = document.querySelector<HTMLElement>(".subnav");
+    const tab = nav?.querySelector<HTMLElement>("a.active");
+    if (nav && tab) {
+      const n = nav.getBoundingClientRect(), t = tab.getBoundingClientRect();
+      const fade = 24;
+      if (t.right > n.right - fade) nav.scrollLeft += t.right - (n.right - fade);
+      else if (t.left < n.left) nav.scrollLeft -= n.left - t.left;
+    }
   }, [p]);
 
   const pending = ov.data?.counts.proposals_pending ?? 0;

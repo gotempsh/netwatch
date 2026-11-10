@@ -15,7 +15,7 @@ export function dryRun(o: Sensor): { why: string; fix: string; cmd: string } | n
   if (bansDrop(o)) return null;
   if (!o.drop_banned) return { why: "drop_banned is off (a dry run)", fix: "Set drop_banned = true and restart netwatch", cmd: "sudoedit /etc/netwatch/netwatch.toml" };
   if (o.attach_mode === "capture+pf-unreferenced")
-    return { why: "pf.conf never evaluates netwatch's anchor", fix: 'Add anchor "com.apple/netwatch" to /etc/pf.conf, then reload pf', cmd: "sudoedit /etc/pf.conf && sudo pfctl -f /etc/pf.conf" };
+    return { why: "pf.conf never evaluates netwatch's anchor", fix: 'Add anchor "com.apple/netwatch" to /etc/pf.conf, then reload pf; netwatch notices within a minute', cmd: "sudoedit /etc/pf.conf && sudo pfctl -f /etc/pf.conf" };
   return { why: "pf didn't start", fix: "The log says why pf couldn't start", cmd: "grep -i pf /var/log/netwatch.log" };
 }
 

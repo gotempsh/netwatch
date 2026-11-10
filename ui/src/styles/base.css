@@ -464,6 +464,10 @@ p {
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
   .subnav-inner {
+    /* As wide as its tabs, so the end padding scrolls the last one clear of the fade. */
+    flex: none;
+    width: max-content;
+    min-width: 100%;
     padding-right: 24px;
   }
   .topbar-meta .mono,

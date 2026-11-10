@@ -79,6 +79,23 @@ pub fn entries(block: &BTreeSet<IpNet>, allow: &BTreeSet<IpNet>) -> Vec<String> 
         .collect()
 }
 
+/// Whether the main ruleset evaluates our anchor.
+fn referenced() -> bool {
+    let (main, _) = pfctl(&["-s", "rules"], None).unwrap_or_default();
+    reaches_anchor(&main)
+}
+
+/// Whether `pfctl -s rules` output evaluates com.apple/netwatch: through the
+/// stock `anchor "com.apple/*"`, or a line naming it, as the warning advises.
+fn reaches_anchor(rules: &str) -> bool {
+    rules.lines().any(|l| {
+        l.trim_start()
+            .strip_prefix("anchor \"")
+            .and_then(|r| r.split('"').next())
+            .is_some_and(|name| name == "com.apple/*" || name == ANCHOR)
+    })
+}
+
 impl Pf {
     pub fn start() -> anyhow::Result<Self> {
         if !super::is_root() {
@@ -87,12 +104,17 @@ impl Pf {
         let (_, stderr) = pfctl(&["-E"], None)?;
         let token = parse_token(&stderr);
         pfctl(&["-a", ANCHOR, "-f", "-"], Some(RULES))?;
-        let (main, _) = pfctl(&["-s", "rules"], None).unwrap_or_default();
-        let unreferenced = !main.contains("anchor \"com.apple/*\"");
         Ok(Self {
             token,
-            unreferenced,
+            unreferenced: !referenced(),
         })
+    }
+
+    /// Reads the main ruleset again, so a pf.conf fixed and reloaded while
+    /// netwatch runs is noticed. Returns whether `unreferenced` changed.
+    pub fn recheck(&mut self) -> bool {
+        let unreferenced = !referenced();
+        std::mem::replace(&mut self.unreferenced, unreferenced) != unreferenced
     }
 
     pub fn sync(&self, block: &BTreeSet<IpNet>, allow: &BTreeSet<IpNet>) -> anyhow::Result<()> {
@@ -132,6 +154,25 @@ mod tests {
         let out = "No ALTQ support in kernel\nALTQ related functions disabled\npf enabled\nToken : 13897485627162543\n";
         assert_eq!(parse_token(out).as_deref(), Some("13897485627162543"));
         assert_eq!(parse_token("pf already enabled\n"), None);
+    }
+
+    #[test]
+    fn anchor_reached_by_the_stock_wildcard_or_by_name() {
+        let stock =
+            "scrub-anchor \"com.apple/*\" all fragment reassemble\nanchor \"com.apple/*\" all\n";
+        assert!(reaches_anchor(stock));
+        // The line netwatch tells a custom pf.conf to add.
+        assert!(reaches_anchor(
+            "block drop in all\nanchor \"com.apple/netwatch\" all\n"
+        ));
+        assert!(!reaches_anchor(
+            "block drop in all\npass out all flags S/SA keep state\n"
+        ));
+        assert!(!reaches_anchor(
+            "scrub-anchor \"com.apple/*\" all fragment reassemble\n"
+        ));
+        assert!(!reaches_anchor("anchor \"com.apple/netwatch-old\" all\n"));
+        assert!(!reaches_anchor(""));
     }
 
     #[test]

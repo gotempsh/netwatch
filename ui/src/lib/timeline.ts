@@ -8,7 +8,7 @@ export function rowFromDetail(d: SourceDetail, since: number): TimelineRow {
     ...d.alerts.filter((a) => a.first_ts >= since).map((a) => ({ ts: a.first_ts, kind: "finding" as const, label: a.summary, finding: a.kind })),
     ...d.proposals.filter((p) => p.created >= since).map((p) => ({ ts: p.created, kind: "proposal" as const, label: `${p.action} proposed (#${p.id}, ${p.status})` })),
     ...(d.ban && d.ban.created >= since ? [{ ts: d.ban.created, kind: "ban" as const, label: `banned (${d.ban.source}): ${d.ban.reason}` }] : []),
-    ...d.ssh_events.filter((e) => e.kind === "accepted" && e.ts >= since).map((e) => ({ ts: e.ts, kind: "login" as const, label: e.user ? `SSH login accepted as ${e.user}` : "SSH login accepted" })),
+    ...(d.ssh_logins ?? d.ssh_events.filter((e) => e.kind === "accepted")).filter((e) => e.ts >= since).map((e) => ({ ts: e.ts, kind: "login" as const, label: e.user ? `SSH login accepted as ${e.user}` : "SSH login accepted" })),
   ].sort((a, b) => a.ts - b.ts);
   const pending = d.proposals.some((p) => p.status === "pending" && p.action === "ban");
   return {

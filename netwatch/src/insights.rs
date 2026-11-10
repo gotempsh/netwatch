@@ -193,6 +193,28 @@ fn add(
     });
 }
 
+/// The ban summary. Its title stands on its own (the Status page shows only
+/// the title), so it says "dropped" only when the sensor really drops.
+fn ban_note(bans: usize, packets: u64, drop_banned: bool, attach_mode: &str) -> (String, String) {
+    if crate::api::bans_drop(drop_banned, attach_mode) {
+        return (
+            format!("{bans} active ban(s) dropped {packets} packets since start"),
+            BANS_DROPPED.into(),
+        );
+    }
+    let title = format!("{bans} active ban(s) matched {packets} packets since start, none dropped");
+    let detail = match (drop_banned, attach_mode) {
+        (false, _) => "drop_banned = false: banned traffic is only counted (dry run).",
+        (true, "capture+pf-unreferenced") => {
+            "pf.conf never evaluates anchor \"com.apple/netwatch\": add that line to /etc/pf.conf and reload pf with `sudo pfctl -f /etc/pf.conf`."
+        }
+        (true, _) => {
+            "pf didn't start, so banned traffic is only counted; the netwatch log says why."
+        }
+    };
+    (title, detail.into())
+}
+
 pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
     let now = now_unix();
     let mut out = Vec::new();
@@ -202,7 +224,10 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
         .unwrap()
         .proposals(true, None, 10_000)?
         .len();
-    let flows_ok = !app.cfg.track_flows || app.kernel.lock().unwrap().flows_ok;
+    let (flows_ok, attach_mode) = {
+        let k = app.kernel.lock().unwrap();
+        (!app.cfg.track_flows || k.flows_ok, k.attach_mode)
+    };
     let e = app.engine.lock().unwrap();
     let cfg = &app.cfg;
     let hour = now - 3600;
@@ -517,18 +542,12 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             .filter(|s| s.banned)
             .map(|s| s.total.blocked)
             .sum();
+        let (title, detail) = ban_note(e.bans.len(), dropped, cfg.drop_banned, attach_mode);
         add(
             &mut out,
             "info",
-            format!(
-                "{} active ban(s) dropped {dropped} packets since start",
-                e.bans.len()
-            ),
-            if cfg.drop_banned {
-                BANS_DROPPED.into()
-            } else {
-                "drop_banned = false: banned traffic is only counted (dry run).".into()
-            },
+            title,
+            detail,
             Some("netwatch bans".into()),
         );
     }
@@ -639,6 +658,24 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn ban_note_says_dropped_only_when_bans_drop() {
+        let (t, _) = ban_note(2, 5_000, true, "driver");
+        assert_eq!(t, "2 active ban(s) dropped 5000 packets since start");
+        let (t, d) = ban_note(2, 5_000, false, "driver");
+        assert_eq!(
+            t,
+            "2 active ban(s) matched 5000 packets since start, none dropped"
+        );
+        assert!(d.contains("dry run"));
+        let (t, d) = ban_note(1, 7, true, "capture+pf-unreferenced");
+        assert!(t.ends_with("none dropped"));
+        assert!(d.contains("anchor \"com.apple/netwatch\""));
+        let (t, d) = ban_note(1, 7, true, "capture");
+        assert!(t.ends_with("none dropped"));
+        assert!(d.contains("pf didn't start"));
+    }
 
     #[test]
     fn cve_2026_98432_fix_by_kernel_release() {

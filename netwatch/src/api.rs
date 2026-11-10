@@ -266,7 +266,8 @@ struct BanView {
 /// Whether the sensor drops banned packets: `drop_banned`, and on macOS only once
 /// pf has loaded the anchor and its ruleset evaluates it. "capture" (no pf) and
 /// "capture+pf-unreferenced" (pf.conf lacks the anchor) count bans without dropping.
-fn bans_drop(drop_banned: bool, attach_mode: &str) -> bool {
+/// Whether bans drop packets, not just count them.
+pub(crate) fn bans_drop(drop_banned: bool, attach_mode: &str) -> bool {
     drop_banned && !matches!(attach_mode, "capture" | "capture+pf-unreferenced")
 }
 
@@ -285,6 +286,18 @@ fn ban_view(e: &Engine, row: BanRow, drops: bool) -> BanView {
         matched,
         dropped: if drops { matched } else { 0 },
     }
+}
+
+/// A source's 200 most recent SSH events, and its accepted logins on their own:
+/// a login followed by hundreds of failures would fall out of the first list.
+fn source_ssh(
+    store: &crate::store::Store,
+    ip: &str,
+) -> anyhow::Result<(Vec<SshEventRow>, Vec<SshEventRow>)> {
+    Ok((
+        store.ssh_events(0, Some(ip), 200)?,
+        store.ssh_logins(0, Some(ip), 50)?,
+    ))
 }
 
 async fn source_detail(
@@ -367,7 +380,7 @@ async fn source_detail(
         .map_err(internal)?;
     let alerts = store.alerts(0, Some(&ip), 200).map_err(internal)?;
     let history = store.ip_history(&ip, now - 7 * 86_400).map_err(internal)?;
-    let ssh_events = store.ssh_events(0, Some(&ip), 200).map_err(internal)?;
+    let (ssh_events, ssh_logins) = source_ssh(&store, &ip).map_err(internal)?;
     let props: Vec<ProposalView> = store
         .proposals(false, Some(&ip), 50)
         .map_err(internal)?
@@ -389,6 +402,7 @@ async fn source_detail(
     obj.insert("alerts".into(), json!(alerts));
     obj.insert("history".into(), json!(history));
     obj.insert("ssh_events".into(), json!(ssh_events));
+    obj.insert("ssh_logins".into(), json!(ssh_logins));
     obj.insert("ban".into(), json!(ban));
     obj.insert("proposals".into(), json!(props));
     let mut flows = active_flows;
@@ -2091,6 +2105,16 @@ mod tests {
                 .add_ssh_event(&ssh(now - 2_900 + i, "failed", "root"))
                 .unwrap();
         }
+
+        // The source page gets the login too, though 200 newer failures bury it.
+        let (events, logins) = source_ssh(&store, "203.0.113.7").unwrap();
+        assert_eq!(events.len(), 200);
+        assert!(events.iter().all(|e| e.kind == "failed"));
+        assert_eq!(logins.len(), 1);
+        assert_eq!(
+            (logins[0].ts, logins[0].user.as_deref()),
+            (now - 3_000, Some("deploy"))
+        );
 
         let (mut rows, total) = pick_lanes(&e, 20, true, now - 86_400);
         fill_lanes(&store, &mut rows, now - 86_400).unwrap();

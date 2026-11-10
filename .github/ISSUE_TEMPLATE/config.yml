@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions
+    url: https://github.com/gotempsh/netwatch/discussions
+    about: Ask how to set something up or whether netwatch fits your case.
   - name: Report a security problem
     url: https://github.com/gotempsh/netwatch/blob/main/SECURITY.md
     about: Report vulnerabilities privately, as SECURITY.md describes. Don't open a public issue.

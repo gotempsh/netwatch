@@ -1,6 +1,6 @@
 # Contributing to netwatch
 
-Bug reports, fixes, detection rules and docs are all welcome. For a bug, open an issue with the template; it asks for what we need to reproduce it. For a larger change (a new finding, a new page, a new config option), open an issue first so we can agree on the shape before you write it.
+Bug reports, fixes, detection rules and docs are all welcome. For a bug, open an issue with the template; it asks for what we need to reproduce it. To ask how to set something up, or whether netwatch fits your case, use [Discussions](https://github.com/gotempsh/netwatch/discussions). For a larger change (a new finding, a new page, a new config option), open an issue first so we can agree on the shape before you write it.
 
 Security problems don't go in issues: see [SECURITY.md](SECURITY.md).
 

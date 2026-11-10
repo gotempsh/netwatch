@@ -22,6 +22,7 @@ mod ssh;
 mod store;
 mod temps;
 mod util;
+mod window;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("netwatch runs on Linux (eBPF/XDP) and macOS (/dev/bpf)");

@@ -28,6 +28,7 @@ use crate::{
         SshEventRow, owner_key,
     },
     util::{now_unix, proto_name, service_name},
+    window,
 };
 
 type AppState = State<Arc<App>>;
@@ -833,7 +834,24 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
     let now = now_unix();
     let secs = window_secs(q.window.as_deref(), 3_600);
     let since = now - secs;
-    let (rows, series, listening) = {
+    // Bytes come from the window totals, not from each flow's lifetime counters:
+    // by minute within the last hour, by whole hours beyond it.
+    let bytes_since = if secs <= 3_600 {
+        since - since.rem_euclid(60)
+    } else {
+        since - since.rem_euclid(3_600)
+    };
+    // Longer windows: the stored hours first, with the last minute they
+    // include, then only the minutes closed after it, so a minute stored in
+    // between is counted once.
+    let stored = if secs > 3_600 {
+        let store = app.store.lock().unwrap();
+        let bytes = store.window_bytes(bytes_since).map_err(internal)?;
+        Some((bytes, store.window_saved()))
+    } else {
+        None
+    };
+    let (rows, series, listening, mut bytes) = {
         let e = app.engine.lock().unwrap();
         let rows: Vec<FlowRow> = e
             .flows
@@ -841,69 +859,72 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
             .values()
             .map(|f| e.flow_row(f, now, true))
             .collect();
-        (rows, e.flows.series.clone(), e.flows.listeners.len())
+        let bytes = match &stored {
+            None => e.bytes.since(bytes_since),
+            Some((stored, saved)) => {
+                let mut bytes = e.bytes.after(*saved, bytes_since);
+                window::merge(&mut bytes, stored);
+                bytes
+            }
+        };
+        (rows, e.flows.series.clone(), e.flows.listeners.len(), bytes)
     };
-    // Finished flows in the window; capped so a busy week stays responsive.
-    let past = app
-        .store
-        .lock()
-        .unwrap()
-        .flows(
-            &FlowFilter {
-                since,
-                ..Default::default()
-            },
-            100_000,
-        )
-        .map_err(internal)?;
+    let (past, failed) = {
+        let store = app.store.lock().unwrap();
+        // Finished flows in the window; capped so a busy week stays responsive.
+        let past = store
+            .flows(
+                &FlowFilter {
+                    since,
+                    ..Default::default()
+                },
+                100_000,
+            )
+            .map_err(internal)?;
+        (past, store.failed_connects(since).map_err(internal)?)
+    };
     let mut by: [HashMap<String, (Group, std::collections::HashSet<String>)>; 4] =
         Default::default();
-    let (mut total_in, mut total_out, mut failed, mut n_in, mut n_out) =
-        (0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut n_in, mut n_out) = (0u64, 0u64);
     for f in rows.iter().chain(past.iter()) {
-        total_in += f.bytes_in;
-        total_out += f.bytes_out;
-        failed += (f.state == "failed") as u64;
         match f.dir.as_str() {
             "in" => n_in += 1,
             "out" => n_out += 1,
             _ => {}
         }
-        let process = owner_key(
-            f.container.as_deref(),
-            f.unit.as_deref(),
-            f.process.as_deref(),
-        );
-        let service = format!("{}/{} {}", f.service_port, f.proto, f.dir);
-        let keys = [
-            f.remote.clone(),
-            process,
-            service,
-            f.country.clone().unwrap_or_else(|| "--".into()),
-        ];
-        for (i, k) in keys.into_iter().enumerate() {
+        for (i, (dim, k, label)) in window::group_keys(f).into_iter().enumerate() {
             let (g, remotes) = by[i].entry(k.clone()).or_default();
             g.key = k;
             g.flows += 1;
             g.active += f.active as u64;
-            g.bytes_in += f.bytes_in;
-            g.bytes_out += f.bytes_out;
             g.rate_bps += (f.rate_in + f.rate_out) * 8.0;
             g.failed += (f.state == "failed") as u64;
             g.retrans += f.retrans;
             g.last_seen = g.last_seen.max(f.last_seen);
             remotes.insert(f.remote.clone());
-            match i {
-                0 => {
-                    g.label = g.label.take().or_else(|| f.remote_name.clone());
-                    g.country = g.country.take().or_else(|| f.country.clone());
-                    g.as_org = g.as_org.take().or_else(|| f.as_org.clone());
-                }
-                1 => g.label = g.label.take().or_else(|| f.exe.clone()),
-                2 => g.label = g.label.take().or_else(|| f.service.clone()),
-                _ => {}
+            g.label = g.label.take().or(label);
+            if dim == window::REMOTE {
+                g.country = g.country.take().or_else(|| f.country.clone());
+                g.as_org = g.as_org.take().or_else(|| f.as_org.clone());
             }
         }
+    }
+    // Groups take their bytes from the window totals; a group that moved bytes
+    // in the window but whose flows fell past the 100k cap still shows.
+    let total = bytes
+        .remove(&(window::TOTAL, String::new()))
+        .unwrap_or_default();
+    for ((dim, key), b) in bytes {
+        if key.is_empty() || dim as usize >= by.len() {
+            continue;
+        }
+        let (g, _) = by[dim as usize].entry(key.clone()).or_default();
+        g.key = key;
+        g.bytes_in = b.bytes_in;
+        g.bytes_out = b.bytes_out;
+        g.label = g.label.take().or(b.label);
+        g.country = g.country.take().or(b.country);
+        g.as_org = g.as_org.take().or(b.as_org);
     }
     let [remotes, processes, services, countries] = by;
     Ok(Json(json!({
@@ -913,8 +934,9 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
         "inbound": n_in,
         "outbound": n_out,
         "failed": failed,
-        "bytes_in": total_in,
-        "bytes_out": total_out,
+        "bytes_in": total.bytes_in,
+        "bytes_out": total.bytes_out,
+        "bytes_since": bytes_since,
         "listeners": listening,
         "truncated": past.len() >= 100_000,
         "top_remotes": top(remotes, 25),

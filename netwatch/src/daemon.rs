@@ -3,7 +3,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -47,6 +50,8 @@ pub struct App {
     /// Interface addresses, refreshed once a minute.
     if_addrs: Mutex<BTreeMap<String, Vec<String>>>,
     pub notify: Notifier,
+    /// Hours before this one are compacted already (`Store::compact_window_bytes`).
+    window_compacted: AtomicI64,
 }
 
 /// Interfaces that should carry the flow programs right now.
@@ -122,6 +127,10 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     let attached: BTreeSet<String> = kernel.attached.keys().cloned().collect();
 
     let mut engine = Engine::new(cfg.clone(), geo, eph);
+    // The last hour's byte totals, so short windows survive a restart.
+    engine
+        .bytes
+        .restore(store.window_minutes(now_unix() - 3_600)?);
     engine.observe_ifaces(ifl, &attached, 1.0);
     if let Some(p) = store.policy()? {
         match serde_json::from_str::<Vec<Rule>>(&p.rules) {
@@ -150,6 +159,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         scan_owners: Mutex::new(OwnerCache::default()),
         if_addrs: Mutex::new(if_addrs),
         notify,
+        window_compacted: AtomicI64::new(i64::MIN),
     });
     app.notify.send(
         Level::Info,
@@ -211,16 +221,19 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     app.kernel.lock().unwrap().shutdown();
     // Keep what was still open: long-lived connections only reach the store when they end.
     let now = now_unix();
-    let (rows, dns, events) = {
+    let (rows, dns, events, minutes) = {
         let mut e = app.engine.lock().unwrap();
-        let mut archived = e.take_flow_archive(now);
-        archived.0.extend(e.drain_flows(now));
-        archived
+        e.fold_bytes(now, true);
+        e.bytes.close();
+        let (mut rows, dns, events) = e.take_flow_archive(now);
+        rows.extend(e.drain_flows(now));
+        (rows, dns, events, e.bytes.take_unsaved())
     };
     let mut store = app.store.lock().unwrap();
     store.add_flows(&rows)?;
     store.add_dns(&dns)?;
     store.add_conn_events(&events)?;
+    store.add_window_bytes(&minutes)?;
     Ok(())
 }
 
@@ -372,11 +385,23 @@ impl App {
                 attached,
             )
         };
-        let (alerts, ipopt, hours, decisions, subnets, flow_delete, health_delete, archived) = {
+        let (
+            alerts,
+            ipopt,
+            hours,
+            decisions,
+            subnets,
+            flow_delete,
+            health_delete,
+            archived,
+            minutes,
+        ) = {
             let mut e = self.engine.lock().unwrap();
             if periodic {
                 e.listening = intel::Listening::scan();
-                e.geo.reload_if_changed();
+                if e.geo.reload_if_changed() {
+                    e.bytes.forget_places();
+                }
                 e.prune(now);
                 e.flows.prune(now);
             }
@@ -391,6 +416,8 @@ impl App {
             } else {
                 Vec::new()
             };
+            e.fold_bytes(now, false);
+            let minutes = e.bytes.take_unsaved();
             let archived = e.take_flow_archive(now);
             e.observe_global(global, now, dt);
             e.observe_sources(sources, now, dt);
@@ -421,6 +448,7 @@ impl App {
                 flow_delete,
                 health_delete,
                 archived,
+                minutes,
             )
         };
         let mitigation = if ipopt.is_empty() {
@@ -461,6 +489,21 @@ impl App {
             k.delete_health(&health_delete);
         }
 
+        // A failed write keeps the minutes for the next tick and doesn't stop
+        // the rest of this one.
+        if !minutes.is_empty() {
+            let stored = self.store.lock().unwrap().add_window_bytes(&minutes);
+            if let Err(err) = stored {
+                let dropped = self.engine.lock().unwrap().bytes.requeue(minutes);
+                if dropped > 0 {
+                    log::warn!(
+                        "couldn't store the byte totals: {err:#}; dropped {dropped} minute(s) over an hour old"
+                    );
+                } else {
+                    log::warn!("couldn't store the byte totals, retrying next tick: {err:#}");
+                }
+            }
+        }
         {
             let mut store = self.store.lock().unwrap();
             let (flows, dns, events) = &archived;
@@ -496,6 +539,10 @@ impl App {
             if periodic {
                 store.prune(self.cfg.retention_days, now)?;
                 store.prune_flows(self.cfg.flow_retention_days, now)?;
+                let hour = now - now.rem_euclid(3600);
+                let from = self.window_compacted.load(Ordering::Relaxed);
+                store.compact_window_bytes(from, hour)?;
+                self.window_compacted.store(hour, Ordering::Relaxed);
             }
         }
 

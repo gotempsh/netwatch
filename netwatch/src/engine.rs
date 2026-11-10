@@ -336,6 +336,8 @@ pub struct Engine {
     /// `sshd -T` says passwords are accepted.
     pub sshd_password_auth: Option<bool>,
     pub flows: crate::flows::FlowTable,
+    /// Bytes per group over time, for windowed totals.
+    pub bytes: crate::window::ByteWindows,
     pub ifaces: Vec<crate::flows::IfStat>,
     /// Requests temps reported since the last tick (see temps.rs).
     pub temps_requests: Vec<InboundRequest>,
@@ -371,6 +373,7 @@ impl Engine {
             events: VecDeque::new(),
             sshd_password_auth: None,
             flows: crate::flows::FlowTable::new(eph),
+            bytes: Default::default(),
             ifaces: Vec::new(),
             temps_requests: Vec::new(),
             prev_global: None,

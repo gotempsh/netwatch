@@ -27,7 +27,7 @@ curl -s 'http://127.0.0.1:9180/api/sources?flagged=1&limit=10' | jq '.[].ip'
 | `/api/policy` | your rules, the compiled rules and the built-in defaults | |
 | `/api/llm` | model settings, token use and recent runs | |
 | `/api/flows` | connections | `view` (`active`, `history`, `all`), `window`, `ip`, `port`, `process`, `dir`, `iface`, `proto`, `q`, `sort`, `limit` |
-| `/api/flows/summary` | flow counts, failed connects, top remotes, processes, services and countries | `window` |
+| `/api/flows/summary` | flow counts, failed connects, bytes moved in the window (from `bytes_since`), top remotes, processes, services and countries | `window` |
 | `/api/destinations` | every address the host connected out to, one row per address | `window`, `scope` (`public`, `all`), `unnamed`, `q`, `sort`, `limit` |
 | `/api/interfaces` | interfaces, rates and attached programs | |
 | `/api/listeners` | listening sockets, owners and exposure | |

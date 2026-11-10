@@ -1,5 +1,6 @@
 // A source as one lane of the attack timeline (see Lanes in viz.tsx).
 import type { TimelineRow } from "../api/types";
+import { hourToTs } from "../lib/format";
 import { sourceHref } from "../lib/router";
 import { Flag, KindChip, kindLabel, scoreTone } from "./ui";
 import type { Lane } from "./viz";
@@ -30,7 +31,7 @@ export function laneFor(r: TimelineRow, drops: boolean, opts: { compact?: boolea
         <span className={r.ssh_accepted ? "hot" : "muted"}>{r.ssh_accepted ? `${r.ssh_accepted} logins` : statusText(r, drops)}</span>
       </span>
     ),
-    cells: r.hours.map((h) => ({ ts: h.hour, v: h.in_packets })),
+    cells: r.hours.map((h) => ({ ts: hourToTs(h.hour), v: h.in_packets })),
     events: r.events
       .filter((e) => e.kind !== "ban")
       .map((e) => ({

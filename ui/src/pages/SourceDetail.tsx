@@ -1,17 +1,56 @@
-import { useMemo } from "react";
-import type { SourceDetail as Detail } from "../api/types";
+// One source as a story: the verdict (is it handled? did it get in?), its last
+// seven days as a lane, what it did in sentences, and the raw tables behind
+// disclosures for when you need the evidence.
+import { useMemo, type ReactNode } from "react";
+import type { SourceDetail as Detail, Overview, Source } from "../api/types";
 import { usePoll } from "../api/client";
-import { TimeChart, type ChartSeries } from "../components/charts";
-import { BanExpiry, BanSourceBadge, ProposalList, banCmd, unbanCmd } from "../components/domain";
+import { BanSourceBadge, ProposalList, banCmd, unbanCmd } from "../components/domain";
 import { AlertsTable } from "./Alerts";
 import { SshTable } from "./Ssh";
-import { Badge, Card, Command, Empty, Flag, KindChip, PanelState, RelTime, ScoreMeter, SourceFlags } from "../components/ui";
-import { useNow } from "../lib/clock";
-import { fmtBits, fmtBytes, fmtCompact, fmtDayHour, fmtInt, fmtRate, hourToTs } from "../lib/format";
-import { href } from "../lib/router";
 import { FlowsTable } from "./Connections";
+import { Command, Empty, Flag, KindChip, PanelState, RelTime, kindLabel } from "../components/ui";
+import { LaneLegend, Lanes, SevIcon, type Sev } from "../components/viz";
+import { laneFor } from "../components/timeline";
+import { useNow } from "../lib/clock";
+import { fmtBits, fmtBytes, fmtDayHour, fmtDuration, fmtInt, fmtRate, fmtRelative } from "../lib/format";
+import { bansDrop, banMatched } from "../lib/mode";
+import { href, sourceHref } from "../lib/router";
+import { rowFromDetail } from "../lib/timeline";
 
-function KV({ k, children }: { k: string; children: React.ReactNode }) {
+function count<T>(xs: T[], key: (x: T) => string | null | undefined): [string, number][] {
+  const m = new Map<string, number>();
+  for (const x of xs) {
+    const k = key(x);
+    if (k) m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function Fact({ sev, title, children }: { sev: Sev; title: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="fact">
+      <SevIcon sev={sev} size={14} />
+      <div>
+        <b>{title}</b>
+        {children && <span>{children}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Evidence({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
+  return (
+    <details className="evidence">
+      <summary>
+        {title}
+        {sub && <span>{sub}</span>}
+      </summary>
+      <div className="evidence-body">{children}</div>
+    </details>
+  );
+}
+
+function KV({ k, children }: { k: string; children: ReactNode }) {
   return (
     <>
       <dt>{k}</dt>
@@ -20,102 +59,32 @@ function KV({ k, children }: { k: string; children: React.ReactNode }) {
   );
 }
 
-function HistoryChart({ d }: { d: Detail }) {
-  const now = useNow();
-  const hourNow = Math.floor(now / 3600);
-  const { x, series } = useMemo(() => {
-    // Fill the full 7-day hourly grid; hours with no row are zero.
-    const end = hourNow * 3600;
-    const start = end - 167 * 3600;
-    const byHour = new Map(d.history.map((h) => [Math.floor(hourToTs(h.hour) / 3600) * 3600, h]));
-    const x: number[] = [];
-    const inP: number[] = [];
-    const syn: number[] = [];
-    const blk: number[] = [];
-    for (let t = start; t <= end; t += 3600) {
-      const h = byHour.get(t);
-      x.push(t);
-      inP.push(h?.in_packets ?? 0);
-      syn.push(h?.syn ?? 0);
-      blk.push(h?.blocked ?? 0);
-    }
-    const series: ChartSeries[] = [
-      { key: "in", label: "Inbound packets", slot: 2, values: inP },
-      { key: "syn", label: "SYN", slot: 3, values: syn },
-      { key: "blocked", label: "Blocked", slot: 4, values: blk },
-    ];
-    return { x, series };
-  }, [d.history, hourNow]);
-  const peak = d.history.reduce((m, h) => Math.max(m, h.max_score), 0);
-  return (
-    <Card title="Last 7 days" sub={`Packets per hour · peak hourly score ${peak}`}>
-      {d.history.length ? (
-        <TimeChart x={x} series={series} yFormat={fmtCompact} xFormat={fmtDayHour} height={160} ariaLabel={`Hourly inbound, SYN and blocked packets for ${d.ip}, last 7 days`} />
-      ) : (
-        <Empty>No hourly history yet.</Empty>
-      )}
-    </Card>
-  );
-}
-
-function ConnectionsSection({ d }: { d: Detail }) {
-  const flows = d.flows ?? [];
-  const names = d.dns_names ?? [];
-  const active = flows.filter((f) => f.active).length;
-  return (
-    <Card
-      title={`Connections (${flows.length})`}
-      sub={`${active} active · finished flows from the last 7 days, newest first`}
-      flush
-      actions={
-        <a className="small" href={href("/traffic/connections", { view: "all", ip: d.ip, window: "7d" })}>
-          Open in Connections
-        </a>
-      }
-    >
-      <div className="dns-names">
-        <span className="muted small">DNS names: </span>
-        {names.length ? (
-          names.map((n) => (
-            <span key={n} className="chip mono" title="This IP was resolved from this name (DNS answers seen by netwatch)">
-              {n}
-            </span>
-          ))
-        ) : (
-          <span className="muted small">none seen</span>
-        )}
-      </div>
-      {flows.length ? (
-        <div className="scroll-y scroll-x" style={{ maxHeight: 480 }}>
-          <FlowsTable rows={flows} mode="all" />
-        </div>
-      ) : (
-        <Empty>No conversations recorded with this IP.</Empty>
-      )}
-    </Card>
-  );
-}
-
 export default function SourceDetail({ ip }: { ip: string }) {
+  const now = useNow();
   const res = usePoll<Detail>(`/api/sources/${encodeURIComponent(ip)}`, 10_000);
+  const ov = usePoll<Overview>("/api/overview", 30_000);
   const d = res.stale ? undefined : res.data;
+  const peers = usePoll<Source[]>(d?.geo.asn ? `/api/sources?q=as${d.geo.asn}&flagged=1&limit=20` : null, 60_000);
 
-  if (!d) {
+  const since = now - 7 * 86400;
+  const row = useMemo(() => (d ? rowFromDetail(d, since) : null), [d, since]);
+
+  if (!d || !row) {
     const notFound = res.error?.status === 404;
     return (
-      <div className="page">
-        <p className="crumbs">
-          <a href="#/threats/sources">Sources</a> /
-        </p>
-        <h1 className="mono">{ip}</h1>
+      <div className="page roomy">
+        <a className="crumb" href="#/threats">
+          Threats
+        </a>
+        <h1 className="src-ip">{ip}</h1>
         {notFound ? (
-          <Card>
-            <Empty>This IP is not tracked by the daemon (no traffic seen, or it aged out).</Empty>
-            <div className="hint-row">
-              <span className="muted small">To ban it anyway, run on the server:</span>
+          <>
+            <p className="muted">netwatch hasn't seen {ip}: no traffic, or it aged out after 7 days.</p>
+            <div className="next">
+              <span className="next-label">To ban it anyway, run on the server</span>
               <Command cmd={banCmd(ip)} />
             </div>
-          </Card>
+          </>
         ) : (
           <PanelState loading={!res.error} error={res.error} />
         )}
@@ -123,145 +92,259 @@ export default function SourceDetail({ ip }: { ip: string }) {
     );
   }
 
-  const g = d.geo;
+  const drops = !ov.data || bansDrop(ov.data);
+  const top = [...d.findings].sort((a, b) => b.score - a.score)[0];
+  const active = now - d.last_seen < 600;
+  const pending = d.proposals.find((p) => p.status === "pending");
+  const gotIn = d.ssh.accepted > 0;
+  const sev: Sev = gotIn ? "critical" : d.banned && drops ? "ok" : d.score >= 60 ? "warn" : "ok";
+  const what = top ? kindLabel(top.kind) : null;
+  const title = gotIn
+    ? `Logged in over SSH ${d.ssh.accepted === 1 ? "once" : `${d.ssh.accepted} times`}`
+    : d.allowlisted
+      ? "Allowlisted: never scored or banned"
+      : d.ban
+        ? `Banned ${fmtRelative(d.ban.created, now)}${what ? ` for ${what}` : ""}${active ? ", still trying" : ""}`
+        : d.banned
+          ? `Banned with its range${what ? ` for ${what}` : ""}`
+          : pending
+            ? `${what ?? "Flagged"}; a ${pending.action} is proposed and waits for you`
+            : what
+              ? `${what}, not banned`
+              : "Nothing suspicious";
+  const next = pending
+    ? { label: `Approve the proposed ${pending.action} (#${pending.id})`, cmd: pending.approve_cmd }
+    : d.ban && !drops
+      ? { label: "This ban only counts: set drop_banned = true and restart netwatch", cmd: "sudoedit /etc/netwatch/netwatch.toml" }
+      : !d.banned && !d.allowlisted && d.score >= 60
+        ? { label: "To ban it, run on the server", cmd: banCmd(d.ip) }
+        : null;
+
+  const sshFlows = d.flows.filter((f) => f.app?.ssh_client);
+  const clients = count(sshFlows, (f) => f.app?.ssh_client?.replace(/^SSH-2\.0-/, ""));
+  const users = count(
+    d.ssh_events.filter((e) => e.kind !== "accepted"),
+    (e) => e.user,
+  );
+  const targets = count(d.flows, (f) => `${f.process ?? f.app?.proto ?? "?"} on ${f.local}:${f.lport}`);
+  const peerList = (peers.data ?? []).filter((s) => s.ip !== d.ip);
+  const lane = laneFor(row, drops);
+  const synLane = { ...lane, key: `${d.ip}-syn`, label: <span className="muted small">SYN per hour</span>, side: null, events: [], ban: null, cells: row.hours.map((h) => ({ ts: h.hour, v: h.syn })) };
+  const story = [
+    { ts: d.first_seen, text: "First packet seen" },
+    ...row.events.map((e) => ({ ts: e.ts, text: e.kind === "finding" && e.finding ? `${kindLabel(e.finding)} raised: ${e.label}` : e.label })),
+    { ts: d.last_seen, text: "Last packet seen" },
+  ]
+    .filter((e) => e.ts > 0)
+    .sort((a, b) => a.ts - b.ts);
   const listening = d.port_touches.filter((p) => p.listening).length;
+  const where = [d.geo.city, d.geo.country].filter(Boolean).join(", ");
+
   return (
-    <div className="page">
-      <p className="crumbs">
-        <a href="#/threats/sources">Sources</a> /
-      </p>
-      <div className="page-head">
-        <h1 className="mono detail-ip">
-          <Flag cc={g.country_code} title={g.country} /> {d.ip}
-        </h1>
-        <SourceFlags banned={d.banned} allowlisted={d.allowlisted} feeds={d.feeds} />
-        <span className="muted small">
-          first seen <RelTime ts={d.first_seen} /> · last seen <RelTime ts={d.last_seen} />
-        </span>
+    <div className="page roomy">
+      <div className="src-head">
+        <a className="crumb" href="#/threats">
+          Threats
+        </a>
+        <h1 className="src-ip">{d.ip}</h1>
+        <p className="src-where">
+          <Flag cc={d.geo.country_code} title={d.geo.country} /> {where || "Unknown location"}
+          {d.geo.asn ? ` · AS${d.geo.asn} ${d.geo.as_org ?? ""}` : ""} · first seen <RelTime ts={d.first_seen} />
+        </p>
       </div>
 
-      <div className="grid-3">
-        <Card title="Location & network">
-          <dl className="kv">
-            <KV k="Country">
-              {g.country ? (
+      <section className={`verdict sev-${sev} verdict-block`}>
+        <div className="verdict-top">
+          <div className="verdict-main">
+            <SevIcon sev={sev} size={22} />
+            <div>
+              <h2 className="verdict-title">{title}</h2>
+              <p className="verdict-sub">
+                Score {d.score} · {d.findings.map((f) => kindLabel(f.kind)).join(", ") || "no findings"} · last packet <RelTime ts={d.last_seen} />
+              </p>
+            </div>
+          </div>
+          {(next || d.ban) && (
+            <div className="next">
+              {next && (
                 <>
-                  <Flag cc={g.country_code} /> {g.country} <span className="muted">({g.country_code})</span>
+                  <span className="next-label">{next.label}</span>
+                  <Command cmd={next.cmd} />
                 </>
-              ) : (
-                <span className="muted">unknown</span>
               )}
-            </KV>
-            <KV k="City">{g.city ?? <span className="muted">–</span>}</KV>
-            <KV k="Coordinates">{g.lat != null && g.lon != null ? <span className="mono">{g.lat.toFixed(2)}, {g.lon.toFixed(2)}</span> : <span className="muted">–</span>}</KV>
-            <KV k="ASN">{g.asn ? <span className="mono">AS{g.asn}</span> : <span className="muted">–</span>}</KV>
-            <KV k="Organisation">{g.as_org ?? <span className="muted">–</span>}</KV>
-          </dl>
-        </Card>
-
-        <Card title="Score & findings">
-          <div className="score-row">
-            <ScoreMeter score={d.score} wide />
-          </div>
-          {d.findings.length ? (
-            <ul className="finding-list">
-              {d.findings.map((f) => (
-                <li key={f.kind}>
-                  <KindChip kind={f.kind} score={f.score} />
-                  <span className="num muted">{f.score}</span>
-                  <span>{f.summary}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">No findings.</p>
+              {d.ban && (
+                <span className="muted small">
+                  To lift the ban: <span className="mono">{unbanCmd(d.ban.target)}</span>
+                </span>
+              )}
+            </div>
           )}
-          <div className="feeds">
-            <span className="muted small">Threat feeds: </span>
-            {d.feeds.length === 0 && <span className="muted small">not listed</span>}
-            {d.feed_hits?.length
-              ? d.feed_hits.map((h) => (
-                  <div key={h.name} className="feed-hit">
-                    <Badge tone="serious">{h.name}</Badge>
-                    {h.range && <span className="mono small" title="The listed range that contains this address">{h.range}</span>}
-                    {h.about && <span className="muted small">{h.about}</span>}
-                  </div>
-                ))
-              : d.feeds.map((f) => <Badge key={f} tone="serious">{f}</Badge>)}
-          </div>
-        </Card>
-
-        <Card title="Ban status">
+        </div>
+        <div className="facts">
+          <Fact sev={gotIn ? "critical" : "ok"} title={gotIn ? `Got in: ${fmtInt(d.ssh.accepted)} accepted logins` : "Never got in"}>
+            {fmtInt(d.ssh.failed)} failed logins, {fmtInt(d.ssh.invalid_users)} invalid users, {fmtInt(d.ssh.accepted)} accepted
+          </Fact>
           {d.ban ? (
-            <>
-              <dl className="kv">
-                <KV k="Target">
-                  <span className="mono">{d.ban.target}</span>
-                </KV>
-                <KV k="Source">
-                  <BanSourceBadge source={d.ban.source} />
-                </KV>
-                <KV k="Created">
-                  <RelTime ts={d.ban.created} />
-                </KV>
-                <KV k="Expires">
-                  <BanExpiry ban={d.ban} />
-                </KV>
-                {d.ban.dropped > 0 || !d.ban.matched ? <KV k="Dropped">{fmtInt(d.ban.dropped)} packets</KV> : <KV k="Matched">{fmtInt(d.ban.matched)} packets, not dropped (dry run)</KV>}
-                <KV k="Reason">{d.ban.reason}</KV>
-              </dl>
-              <div className="hint-row">
-                <span className="muted small">To lift the ban, run on the server:</span>
-                <Command cmd={unbanCmd(d.ban.target)} />
-              </div>
-            </>
+            <Fact sev={drops ? "ok" : "warn"} title={drops ? `Ban dropped ${fmtInt(d.ban.dropped)} packets` : `Ban matched ${fmtInt(banMatched(d.ban))} packets, dropped none`}>
+              {d.ban.target !== d.ip ? `banned as part of ${d.ban.target} · ` : ""}
+              {drops ? "" : "a dry run lets them through · "}
+              {d.ban.expires ? `expires in ${fmtDuration(Math.max(0, d.ban.expires - now))}` : "permanent"}
+            </Fact>
           ) : (
-            <>
-              <p className="muted">{d.banned ? "Covered by a ban on a wider range." : "Not banned."}</p>
-              {d.allowlisted ? (
-                <p className="small">
-                  <Badge tone="good">allowlisted</Badge> Policy will never ban this source.
-                </p>
-              ) : (
-                !d.banned && (
-                  <div className="hint-row">
-                    <span className="muted small">To ban it, run on the server:</span>
-                    <Command cmd={banCmd(d.ip)} />
-                  </div>
-                )
-              )}
-            </>
+            <Fact sev={d.banned ? "ok" : d.score >= 60 ? "warn" : "ok"} title={d.banned ? "Covered by a wider ban" : d.allowlisted ? "Allowlisted" : "Not banned"}>
+              {pending ? `proposal #${pending.id} waits for you` : d.allowlisted ? "policy never bans it" : undefined}
+            </Fact>
           )}
-        </Card>
-      </div>
+          {d.feeds.length > 0 && (
+            <Fact sev="warn" title={`On ${d.feeds.length} threat feed${d.feeds.length === 1 ? "" : "s"}`}>
+              {d.feeds.join(", ")}
+            </Fact>
+          )}
+        </div>
+      </section>
 
-      <Card title="Traffic counters" className="counters">
-        <dl className="kv kv-grid">
-          <KV k="Inbound">
-            {fmtInt(d.in_packets)} pkts · {fmtBytes(d.in_bytes)}
-          </KV>
-          <KV k="Total">
-            {fmtInt(d.packets)} pkts · {fmtBytes(d.bytes)}
-          </KV>
-          <KV k="SYN">{fmtInt(d.syn)}</KV>
-          <KV k="UDP in">{fmtInt(d.udp_in)}</KV>
-          <KV k="ICMP in">{fmtInt(d.icmp_in)}</KV>
-          <KV k="Blocked">{fmtInt(d.blocked)}</KV>
-          <KV k="Rate now">
-            {fmtRate(d.rate.in_pps, " pps")} · {fmtBits(d.rate.in_bps)} · {fmtRate(d.rate.syn_ps, " SYN/s")}
-          </KV>
-          <KV k="SSH">
-            {fmtInt(d.ssh.failed)} failed · {fmtInt(d.ssh.invalid_users)} invalid users · {fmtInt(d.ssh.accepted)} accepted
-          </KV>
-        </dl>
-      </Card>
+      <section className="panel">
+        <div className="panel-head">
+          <h2 className="section-title">Last 7 days</h2>
+          <LaneLegend dryRun={!drops} />
+        </div>
+        {row.hours.length ? <Lanes lanes={[{ ...lane, label: <span className="muted small">Packets per hour</span> }, synLane]} from={since} to={now} labelW={120} head="" /> : <Empty>No hourly history yet: it fills in after the first full hour.</Empty>}
+        <ol className="story">
+          {story.map((e, i) => (
+            <li key={i}>
+              <time className="muted tabular" dateTime={new Date(e.ts * 1000).toISOString()}>
+                {fmtDayHour(e.ts)}
+              </time>
+              <span>{e.text}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-      <HistoryChart d={d} />
+      <section className="section">
+        <h2>What it did</h2>
+        <ul className="did">
+          <li>
+            <span className="did-k">Ports</span>
+            <div>
+              {d.port_touches.length === 0 ? (
+                <span className="muted">No ports touched.</span>
+              ) : (
+                <>
+                  {d.port_touches.length} port{d.port_touches.length === 1 ? "" : "s"}, {listening ? `${listening} with a service listening` : "none with a service listening"}:{" "}
+                  {[...d.port_touches]
+                    .sort((a, b) => Number(b.listening) - Number(a.listening) || b.packets - a.packets)
+                    .slice(0, 6)
+                    .map((p, i) => (
+                      <span key={`${p.proto}${p.port}`}>
+                        {i ? ", " : ""}
+                        <span className="mono">
+                          {p.port}/{p.proto}
+                        </span>
+                        {p.service ? ` ${p.service}` : ""} ({p.listening ? "open" : "closed"}, {fmtInt(p.packets)} packets)
+                      </span>
+                    ))}
+                  {d.port_touches.length > 6 ? ` and ${d.port_touches.length - 6} more` : ""}
+                </>
+              )}
+            </div>
+          </li>
+          <li>
+            <span className="did-k">Connections</span>
+            <div>
+              {d.flows.length === 0 ? (
+                <span className="muted">No connections recorded.</span>
+              ) : (
+                <>
+                  {d.flows.length} connection{d.flows.length === 1 ? "" : "s"}, {targets.length === 1 ? "all to " : "mostly to "}
+                  <span className="mono">{targets[0]?.[0]}</span>.
+                  {clients.length > 0 && (
+                    <>
+                      {" "}
+                      Client software:
+                      <div className="chipsline">
+                        {clients.map(([k, n]) => (
+                          <span key={k} className="count-chip">
+                            {k}
+                            <i>×{n}</i>
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </li>
+          {users.length > 0 && (
+            <li>
+              <span className="did-k">Usernames tried</span>
+              <div className="chipsline flush">
+                {users.slice(0, 24).map(([k, n]) => (
+                  <span key={k} className="count-chip">
+                    {k}
+                    <i>×{n}</i>
+                  </span>
+                ))}
+              </div>
+            </li>
+          )}
+          {(d.feed_hits ?? []).length > 0 && (
+            <li>
+              <span className="did-k">Why it is listed</span>
+              <div>
+                {(d.feed_hits ?? []).map((h) => (
+                  <div key={h.name}>
+                    <b>{h.name}</b> lists <span className="mono">{h.range}</span>
+                    {h.about ? `: ${h.about}` : ""}
+                  </div>
+                ))}
+              </div>
+            </li>
+          )}
+          {d.geo.asn && (
+            <li>
+              <span className="did-k">Same network</span>
+              <div>
+                {peerList.length ? (
+                  peerList.map((s, i) => (
+                    <span key={s.ip}>
+                      {i ? " · " : ""}
+                      <a className="mono" href={sourceHref(s.ip)}>
+                        {s.ip}
+                      </a>{" "}
+                      {s.findings[0] && <KindChip kind={s.findings[0].kind} score={s.score} />} {s.banned ? "banned" : "not banned"}
+                    </span>
+                  ))
+                ) : (
+                  <span className="muted">No other flagged sources in AS{d.geo.asn}.</span>
+                )}
+              </div>
+            </li>
+          )}
+        </ul>
+      </section>
 
-      <ConnectionsSection d={d} />
-
-      <div className="grid-2">
-        <Card title={`Ports touched (${d.port_touches.length})`} sub={listening ? `${listening} hit a listening service` : "None hit a listening service"} flush>
+      <section className="section">
+        <h2 className="sr-only">Evidence</h2>
+        <Evidence title="Connections" sub={`${d.flows.length} · active first, then the last 7 days`}>
+          <p className="evidence-note">
+            {(d.dns_names ?? []).length ? (
+              <>
+                Resolved from <span className="mono">{d.dns_names.join(", ")}</span>.{" "}
+              </>
+            ) : null}
+            <a href={href("/traffic/connections", { view: "all", ip: d.ip, window: "7d" })}>Open in Connections</a>
+          </p>
+          {d.flows.length ? (
+            <div className="scroll-y scroll-x" style={{ maxHeight: 480 }}>
+              <FlowsTable rows={d.flows} mode="all" />
+            </div>
+          ) : (
+            <Empty>No conversations recorded with this IP.</Empty>
+          )}
+        </Evidence>
+        <Evidence title="Ports touched" sub={`${d.port_touches.length}`}>
           {d.port_touches.length ? (
             <div className="scroll-y" style={{ maxHeight: 420 }}>
               <table className="tbl tbl-compact">
@@ -283,7 +366,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
                         {p.port}/{p.proto}
                       </td>
                       <td>{p.service ?? <span className="muted">–</span>}</td>
-                      <td>{p.listening ? <Badge tone="serious">listening</Badge> : <span className="muted small">closed</span>}</td>
+                      <td>{p.listening ? "listening" : <span className="muted">closed</span>}</td>
                       <td className="num">{fmtInt(p.packets)}</td>
                       <td className="num">{fmtInt(p.syn)}</td>
                       <td className="nowrap">
@@ -300,8 +383,8 @@ export default function SourceDetail({ ip }: { ip: string }) {
           ) : (
             <Empty>No port touches recorded.</Empty>
           )}
-        </Card>
-        <Card title={`SSH events (${d.ssh_events.length})`} flush>
+        </Evidence>
+        <Evidence title="SSH attempts" sub={`${d.ssh_events.length} most recent`}>
           {d.ssh_events.length ? (
             <div className="scroll-y" style={{ maxHeight: 420 }}>
               <SshTable events={d.ssh_events} showIp={false} />
@@ -309,21 +392,43 @@ export default function SourceDetail({ ip }: { ip: string }) {
           ) : (
             <Empty>No SSH activity from this source.</Empty>
           )}
-        </Card>
-      </div>
-
-      <Card title={`Alerts (${d.alerts.length})`} flush>
-        {d.alerts.length ? <AlertsTable alerts={d.alerts} showIp={false} /> : <Empty>No alerts.</Empty>}
-      </Card>
-
-      <Card title={`Proposals (${d.proposals.length})`}>
-        {d.proposals.length ? <ProposalList proposals={d.proposals} showTarget={false} /> : <Empty>No proposals for this source.</Empty>}
-      </Card>
-      {res.updatedAt && (
-        <p className="muted small footnote">
-          Updated <RelTime ts={res.updatedAt / 1000} />.
-        </p>
-      )}
+        </Evidence>
+        <Evidence title="Alerts and proposals" sub={`${d.alerts.length} alert${d.alerts.length === 1 ? "" : "s"} · ${d.proposals.length} proposal${d.proposals.length === 1 ? "" : "s"}`}>
+          {d.alerts.length ? <AlertsTable alerts={d.alerts} showIp={false} /> : <Empty>No alerts.</Empty>}
+          {d.proposals.length > 0 && (
+            <div className="evidence-pad">
+              <ProposalList proposals={d.proposals} showTarget={false} />
+            </div>
+          )}
+        </Evidence>
+        <Evidence title="Counters and ban" sub="since the daemon started">
+          <dl className="kv kv-grid evidence-pad">
+            <KV k="Inbound">
+              {fmtInt(d.in_packets)} pkts · {fmtBytes(d.in_bytes)}
+            </KV>
+            <KV k="Total">
+              {fmtInt(d.packets)} pkts · {fmtBytes(d.bytes)}
+            </KV>
+            <KV k="SYN">{fmtInt(d.syn)}</KV>
+            <KV k="UDP / ICMP in">
+              {fmtInt(d.udp_in)} / {fmtInt(d.icmp_in)}
+            </KV>
+            <KV k="Hit a ban">{fmtInt(d.blocked)}</KV>
+            <KV k="Rate now">
+              {fmtRate(d.rate.in_pps, " pps")} · {fmtBits(d.rate.in_bps)} · {fmtRate(d.rate.syn_ps, " SYN/s")}
+            </KV>
+            {d.ban && (
+              <>
+                <KV k="Ban">
+                  <span className="mono">{d.ban.target}</span> <BanSourceBadge source={d.ban.source} /> · {d.ban.reason}
+                </KV>
+                <KV k="Ban age">{fmtDuration(now - d.ban.created)}</KV>
+              </>
+            )}
+            <KV k="Coordinates">{d.geo.lat != null && d.geo.lon != null ? <span className="mono">{d.geo.lat.toFixed(2)}, {d.geo.lon.toFixed(2)}</span> : <span className="muted">–</span>}</KV>
+          </dl>
+        </Evidence>
+      </section>
     </div>
   );
 }

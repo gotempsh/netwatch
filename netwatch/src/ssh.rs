@@ -27,6 +27,7 @@ pub fn parse(ts: i64, tailscale: bool, msg: &str) -> Option<SshEvent> {
         user: user.map(str::to_string),
         ip,
         method: method.map(str::to_string),
+        port: after("port").and_then(|p| p.parse().ok()),
     };
 
     if tailscale {
@@ -228,7 +229,10 @@ mod tests {
             "Failed password for invalid user admin from 203.0.113.5 port 4242 ssh2",
         )
         .unwrap();
-        assert_eq!((e.kind, e.user.as_deref()), ("failed", Some("admin")));
+        assert_eq!(
+            (e.kind, e.user.as_deref(), e.port),
+            ("failed", Some("admin"), Some(4242))
+        );
         let e = parse(
             1,
             false,

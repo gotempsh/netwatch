@@ -841,6 +841,16 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
     } else {
         since - since.rem_euclid(3_600)
     };
+    // Longer windows: the stored hours first, with the last minute they
+    // include, then only the minutes closed after it, so a minute stored in
+    // between is counted once.
+    let stored = if secs > 3_600 {
+        let store = app.store.lock().unwrap();
+        let bytes = store.window_bytes(bytes_since).map_err(internal)?;
+        Some((bytes, store.window_saved()))
+    } else {
+        None
+    };
     let (rows, series, listening, mut bytes) = {
         let e = app.engine.lock().unwrap();
         let rows: Vec<FlowRow> = e
@@ -849,20 +859,13 @@ async fn flows_summary(State(app): AppState, Query(q): Query<ListQuery>) -> ApiR
             .values()
             .map(|f| e.flow_row(f, now, true))
             .collect();
-        let bytes = if secs <= 3_600 {
-            e.bytes.since(bytes_since)
-        } else {
-            // The tick stores closed minutes under the engine lock, so with it
-            // held each minute is either unstored or in the store, never both.
-            let mut bytes = e.bytes.unstored();
-            let stored = app
-                .store
-                .lock()
-                .unwrap()
-                .window_bytes(bytes_since)
-                .map_err(internal)?;
-            window::merge(&mut bytes, &stored);
-            bytes
+        let bytes = match &stored {
+            None => e.bytes.since(bytes_since),
+            Some((stored, saved)) => {
+                let mut bytes = e.bytes.after(*saved);
+                window::merge(&mut bytes, stored);
+                bytes
+            }
         };
         (rows, e.flows.series.clone(), e.flows.listeners.len(), bytes)
     };

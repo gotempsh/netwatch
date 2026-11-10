@@ -134,13 +134,24 @@ pub fn cap(b: Bucket) -> Bucket {
     out
 }
 
+/// A closed minute. `seq` numbers the minutes this process closed, from 1;
+/// minutes restored from the store have 0.
+#[derive(Debug, Clone)]
+pub struct Closed {
+    pub seq: u64,
+    pub ts: i64,
+    pub bytes: Bucket,
+}
+
 #[derive(Debug, Default)]
 pub struct ByteWindows {
     /// Closed minutes of the last hour, oldest first.
-    minutes: VecDeque<(i64, Bucket)>,
+    minutes: VecDeque<Closed>,
     current: Option<(i64, Bucket)>,
     /// Closed minutes the store hasn't got yet.
-    unsaved: Vec<(i64, Bucket)>,
+    unsaved: Vec<Closed>,
+    /// The last minute closed.
+    seq: u64,
     /// Country and AS organisation per remote address, for `fold_bytes`.
     places: HashMap<IpAddr, (Option<String>, Option<String>)>,
 }
@@ -165,15 +176,19 @@ impl ByteWindows {
         if self.current.is_none() {
             self.current = Some((ts, Bucket::new()));
         }
-        while self.minutes.front().is_some_and(|(t, _)| *t < ts - 3600) {
+        while self.minutes.front().is_some_and(|m| m.ts < ts - 3600) {
             self.minutes.pop_front();
         }
     }
 
     /// Puts back minutes the store kept (after a restart), as saved.
     pub fn restore(&mut self, minutes: Vec<(i64, Bucket)>) {
-        self.minutes.extend(minutes);
-        self.minutes.make_contiguous().sort_by_key(|(t, _)| *t);
+        self.minutes.extend(
+            minutes
+                .into_iter()
+                .map(|(ts, bytes)| Closed { seq: 0, ts, bytes }),
+        );
+        self.minutes.make_contiguous().sort_by_key(|m| m.ts);
     }
 
     /// Country and AS organisation of `ip`, looked up once per address.
@@ -188,26 +203,43 @@ impl ByteWindows {
         self.places.entry(ip).or_insert_with(lookup).clone()
     }
 
+    /// Drops the cached places, after the GeoIP databases changed.
+    pub fn forget_places(&mut self) {
+        self.places.clear();
+    }
+
     /// Closes the current minute now (shutdown).
     pub fn close(&mut self) {
-        if let Some((t, b)) = self.current.take()
+        if let Some((ts, b)) = self.current.take()
             && !b.is_empty()
         {
-            let b = cap(b);
-            self.unsaved.push((t, b.clone()));
-            self.minutes.push_back((t, b));
+            self.seq += 1;
+            let m = Closed {
+                seq: self.seq,
+                ts,
+                bytes: cap(b),
+            };
+            self.unsaved.push(m.clone());
+            self.minutes.push_back(m);
         }
     }
 
     /// Closed minutes for the store.
-    pub fn take_unsaved(&mut self) -> Vec<(i64, Bucket)> {
+    pub fn take_unsaved(&mut self) -> Vec<Closed> {
         std::mem::take(&mut self.unsaved)
+    }
+
+    /// Hands back minutes the store failed to take, to try again.
+    pub fn requeue(&mut self, mut minutes: Vec<Closed>) {
+        minutes.append(&mut self.unsaved);
+        self.unsaved = minutes;
     }
 
     /// Minutes starting at or after `since`, the open one included.
     pub fn since(&self, since: i64) -> Bucket {
         let mut out = Bucket::new();
-        for (t, b) in self.minutes.iter().chain(self.current.as_ref()) {
+        let closed = self.minutes.iter().map(|m| (&m.ts, &m.bytes));
+        for (t, b) in closed.chain(self.current.as_ref().map(|(t, b)| (t, b))) {
             if *t >= since {
                 merge(&mut out, b);
             }
@@ -215,10 +247,22 @@ impl ByteWindows {
         out
     }
 
-    /// What the store doesn't have yet: unsaved minutes and the open one.
-    pub fn unstored(&self) -> Bucket {
+    /// What a store read that had minutes up to `saved` (`Store::window_saved`)
+    /// lacks: the minutes closed after those, and the open one.
+    pub fn after(&self, saved: u64) -> Bucket {
         let mut out = Bucket::new();
-        for (_, b) in self.unsaved.iter().chain(self.current.as_ref()) {
+        for m in &self.minutes {
+            if m.seq > saved {
+                merge(&mut out, &m.bytes);
+            }
+        }
+        // Unsaved minutes older than an hour are no longer in `minutes`.
+        for m in &self.unsaved {
+            if m.seq > saved && !self.minutes.iter().any(|k| k.seq == m.seq) {
+                merge(&mut out, &m.bytes);
+            }
+        }
+        if let Some((_, b)) = &self.current {
             merge(&mut out, b);
         }
         out
@@ -267,12 +311,12 @@ mod tests {
         // The first minute closed when the second began; the open one isn't saved yet.
         let saved = w.take_unsaved();
         assert_eq!(saved.len(), 1);
-        assert_eq!(saved[0].0, 1_000_020);
-        assert_eq!(total(&saved[0].1), (150, 15));
-        assert_eq!(total(&w.unstored()), (7, 1));
+        assert_eq!((saved[0].seq, saved[0].ts), (1, 1_000_020));
+        assert_eq!(total(&saved[0].bytes), (150, 15));
+        assert_eq!(total(&w.after(1)), (7, 1));
         assert!(w.take_unsaved().is_empty());
         w.close();
-        assert_eq!(total(&w.take_unsaved()[0].1), (7, 1));
+        assert_eq!(total(&w.take_unsaved()[0].bytes), (7, 1));
     }
 
     #[test]
@@ -295,6 +339,51 @@ mod tests {
     }
 
     #[test]
+    fn after_a_store_read_counts_only_the_minutes_the_store_lacked() {
+        let mut w = ByteWindows::default();
+        let a = row("192.0.2.1", "curl");
+        let mut b = Bucket::new();
+        b.insert(
+            (TOTAL, String::new()),
+            Bytes {
+                bytes_in: 1_000,
+                ..Default::default()
+            },
+        );
+        w.restore(vec![(900, b)]); // in the store already
+        w.add(960, &a, 1, 0);
+        w.add(1_020, &a, 2, 0); // closes 960 as minute 1
+        w.add(1_080, &a, 4, 0); // closes 1020 as minute 2
+        assert_eq!(total(&w.after(0)), (7, 0));
+        assert_eq!(total(&w.after(1)), (6, 0));
+        assert_eq!(total(&w.after(2)), (4, 0));
+
+        // A failed write puts minutes back, and they still count until stored.
+        let unsaved = w.take_unsaved();
+        assert_eq!(unsaved.len(), 2);
+        w.requeue(unsaved);
+        w.add(4_000, &a, 8, 0); // an hour on: 960 and 1020 leave `minutes`
+        let unsaved = w.take_unsaved();
+        assert_eq!(unsaved.iter().map(|m| m.seq).collect::<Vec<_>>(), [1, 2, 3]);
+        w.requeue(unsaved);
+        assert_eq!(total(&w.after(0)), (15, 0));
+        assert_eq!(total(&w.after(2)), (12, 0));
+    }
+
+    #[test]
+    fn places_are_looked_up_again_after_the_geoip_databases_change() {
+        let mut w = ByteWindows::default();
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert_eq!(w.place(ip, || (None, None)), (None, None));
+        assert_eq!(w.place(ip, || (Some("US".into()), None)), (None, None));
+        w.forget_places();
+        assert_eq!(
+            w.place(ip, || (Some("US".into()), None)).0.as_deref(),
+            Some("US")
+        );
+    }
+
+    #[test]
     fn keeps_an_hour() {
         let mut w = ByteWindows::default();
         let a = row("192.0.2.1", "curl");
@@ -313,7 +402,7 @@ mod tests {
             w.add(0, &r, 1000 + i as u64, 0);
         }
         w.close();
-        let b = &w.take_unsaved()[0].1;
+        let b = &w.take_unsaved()[0].bytes;
         let remotes = b.keys().filter(|(d, _)| *d == REMOTE).count();
         assert_eq!(remotes, KEEP + 1);
         // The two smallest went to "".

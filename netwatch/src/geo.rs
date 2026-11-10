@@ -89,13 +89,17 @@ impl Geo {
         }
     }
 
-    /// Picks up databases replaced on disk by the update script.
-    pub fn reload_if_changed(&mut self) {
+    /// Picks up databases replaced on disk by the update script; true when
+    /// one was.
+    pub fn reload_if_changed(&mut self) -> bool {
+        let mut reloaded = false;
         for db in [&mut self.city, &mut self.asn] {
             if db.changed() {
                 db.reload();
+                reloaded = true;
             }
         }
+        reloaded
     }
 
     pub fn available(&self) -> bool {

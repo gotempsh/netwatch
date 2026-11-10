@@ -2105,7 +2105,7 @@ mod tests {
         // The minute with the 9 GB closed and waits for the store.
         let saved = e.bytes.take_unsaved();
         assert_eq!(saved.len(), 1);
-        assert_eq!(total(&saved[0].1), 9_000_000_000);
+        assert_eq!(total(&saved[0].bytes), 9_000_000_000);
     }
 
     #[test]

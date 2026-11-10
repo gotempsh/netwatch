@@ -230,10 +230,10 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
         (rows, dns, events, e.bytes.take_unsaved())
     };
     let mut store = app.store.lock().unwrap();
-    store.add_window_bytes(&minutes)?;
     store.add_flows(&rows)?;
     store.add_dns(&dns)?;
     store.add_conn_events(&events)?;
+    store.add_window_bytes(&minutes)?;
     Ok(())
 }
 
@@ -385,11 +385,23 @@ impl App {
                 attached,
             )
         };
-        let (alerts, ipopt, hours, decisions, subnets, flow_delete, health_delete, archived) = {
+        let (
+            alerts,
+            ipopt,
+            hours,
+            decisions,
+            subnets,
+            flow_delete,
+            health_delete,
+            archived,
+            minutes,
+        ) = {
             let mut e = self.engine.lock().unwrap();
             if periodic {
                 e.listening = intel::Listening::scan();
-                e.geo.reload_if_changed();
+                if e.geo.reload_if_changed() {
+                    e.bytes.forget_places();
+                }
                 e.prune(now);
                 e.flows.prune(now);
             }
@@ -405,12 +417,7 @@ impl App {
                 Vec::new()
             };
             e.fold_bytes(now, false);
-            // Stored before the engine unlocks: a summary reads both under the
-            // engine lock, so it never finds a closed minute in neither or both.
             let minutes = e.bytes.take_unsaved();
-            if !minutes.is_empty() {
-                self.store.lock().unwrap().add_window_bytes(&minutes)?;
-            }
             let archived = e.take_flow_archive(now);
             e.observe_global(global, now, dt);
             e.observe_sources(sources, now, dt);
@@ -441,6 +448,7 @@ impl App {
                 flow_delete,
                 health_delete,
                 archived,
+                minutes,
             )
         };
         let mitigation = if ipopt.is_empty() {
@@ -481,6 +489,15 @@ impl App {
             k.delete_health(&health_delete);
         }
 
+        // A failed write keeps the minutes for the next tick and doesn't stop
+        // the rest of this one.
+        if !minutes.is_empty() {
+            let stored = self.store.lock().unwrap().add_window_bytes(&minutes);
+            if let Err(err) = stored {
+                log::warn!("couldn't store the byte totals, retrying next tick: {err:#}");
+                self.engine.lock().unwrap().bytes.requeue(minutes);
+            }
+        }
         {
             let mut store = self.store.lock().unwrap();
             let (flows, dns, events) = &archived;

@@ -38,7 +38,7 @@ The flagged sources active in the last 7 days (or 24 hours), one lane each, high
 
 ### Sources
 
-Every address that sent traffic, scored 0–100. Each row shows what it did (port scan, SSH brute force, threat feed, …), its country and network, its traffic, and whether it's banned, allowlisted or on a threat feed. Search by address, country or ASN, and sort by score, SYNs, bytes or ports touched.
+Every address that sent traffic, scored 0–100. Each row shows what it did (port scan, SSH brute force, threat feed, …), its country and network, its traffic, and whether it's banned, allowlisted or on a threat feed. Search by address, country or ASN (`AS174` matches that network exactly), and sort by score, SYNs, bytes or ports touched. Links from Status can also filter the list to the sources that touched one port.
 
 ![Sources](/screenshots/sources.png)
 

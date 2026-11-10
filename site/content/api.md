@@ -30,7 +30,7 @@ curl -s 'http://127.0.0.1:9180/api/sources?flagged=1&limit=10' | jq '.[].ip'
 | `/api/flows` | connections | `view` (`active`, `history`, `all`), `window`, `ip`, `port`, `process`, `dir`, `iface`, `proto`, `q`, `sort`, `limit` |
 | `/api/flows/graph` | the Traffic map: inbound connections grouped by who connected and the service they reached, outbound ones by program and destination, each column folded to nine boxes, with bytes and failures per line | `window` (`5m`, `1h` the default, `24h`) |
 | `/api/flows/summary` | flow counts, failed connects, bytes moved in the window (from `bytes_since`), top remotes, processes, services and countries | `window` |
-| `/api/destinations` | every address the host connected out to, one row per address | `window`, `scope` (`public`, `all`), `unnamed`, `q`, `sort`, `limit` |
+| `/api/destinations` | every address the host connected out to, one row per address | `window`, `scope` (`public`, `all`), `unnamed`, `q`, `sort` (`flows`, `bytes`, `last`, `first`, `failed`), `limit` |
 | `/api/interfaces` | interfaces, rates and attached programs | |
 | `/api/listeners` | listening sockets, owners and exposure | |
 | `/api/dns` | DNS queries and the most-queried names | `window`, `q`, `rcode`, `limit` |

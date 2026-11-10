@@ -20,6 +20,8 @@ export interface Issue {
 export interface FailGroup {
   /** systemd unit, container or process that tried to connect. */
   owner: string;
+  /** Its box on the host map (`prog:<owner>`, or `prog:unknown` when nothing owned the socket). */
+  node: string;
   unit: string | null;
   container: string | null;
   remote: string;
@@ -41,13 +43,14 @@ export function failGroups(events: ConnEvent[], dests: Destination[]): FailGroup
   const m = new Map<string, FailGroup>();
   for (const e of events) {
     if (e.kind !== "connect_failed" || !e.remote) continue;
-    // Same order as the host map's program boxes, so the evidence link lands on one.
-    const owner = e.container ?? e.unit ?? e.process ?? "an unknown process";
+    // Same order and fallback as the host map's program boxes, so the evidence link lands on one.
+    const known = e.container ?? e.unit ?? e.process;
+    const owner = known ?? "an unknown process";
     const k = `${owner}|${e.remote}|${e.rport}`;
     let g = m.get(k);
     if (!g) {
       const d = dests.find((x) => x.remote === e.remote);
-      g = { owner, unit: e.unit, container: e.container, remote: e.remote, rport: e.rport ?? 0, name: d?.name ?? null, count: 0, first: e.ts, last: e.ts, refused: 0, timedOut: 0, neverConnected: !!d && d.failed >= d.flows };
+      g = { owner, node: `prog:${known ?? "unknown"}`, unit: e.unit, container: e.container, remote: e.remote, rport: e.rport ?? 0, name: d?.name ?? null, count: 0, first: e.ts, last: e.ts, refused: 0, timedOut: 0, neverConnected: !!d && d.failed >= d.flows };
       m.set(k, g);
     }
     g.count++;
@@ -70,7 +73,7 @@ function evidenceFor(action: string | null, proposals: Proposal[]): Issue["evide
   if (/netwatch proposals/.test(action)) return { href: "#/bans", label: "Review proposals" };
   if (/netwatch bans/.test(action)) return { href: "#/bans", label: "Active bans" };
   const port = action.match(/sources --port (\d+)/)?.[1];
-  if (port) return { href: `#/threats/sources?q=${port}`, label: `Sources on port ${port}` };
+  if (port) return { href: `#/threats/sources?port=${port}`, label: `Sources on port ${port}` };
   if (/netwatch (top|sources)/.test(action)) return { href: "#/threats/sources", label: "Sources" };
   return undefined;
 }
@@ -115,7 +118,7 @@ export function deriveIssues(insights: Insight[], proposals: Proposal[], fails: 
       consequence: `${g.count} connection attempts in the last 24 h ${g.count === 1 ? "was" : "were"} ${failWord(g)}${g.neverConnected ? " and none got through" : ""}, the latest ${fmtAgo(now - g.last)}.`,
       fix,
       fixNote: fix ? undefined : "No command to run: check what calls it.",
-      evidence: { href: `#/traffic?window=24h&node=${encodeURIComponent(`prog:${g.owner}`)}`, label: `Where ${g.owner} connects` },
+      evidence: { href: `#/traffic?window=24h&node=${encodeURIComponent(g.node)}`, label: `Where ${g.owner} connects` },
     });
   }
 

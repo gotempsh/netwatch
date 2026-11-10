@@ -14,6 +14,8 @@ export default function Sources() {
   const sort: SourceSort = sortParam && SORTS.includes(sortParam) ? sortParam : "score";
   const q = query.get("q") ?? "";
   const flagged = query.get("flagged") === "1";
+  // Sources that touched one local port (Status links here from a probed-port insight).
+  const port = Number(query.get("port")) || null;
   const limit = Number(query.get("limit")) || 100;
 
   // Debounce the text filter so typing doesn't spam the daemon.
@@ -36,7 +38,7 @@ export default function Sources() {
     return () => clearTimeout(id);
   }, [text, setQuery]);
 
-  const path = apiPath("/api/sources", { sort, limit, q: q || null, flagged });
+  const path = apiPath("/api/sources", { sort, limit, q: q || null, flagged, port });
   const res = usePoll<Source[]>(path, 5000);
   const rows = res.data ?? [];
 
@@ -46,6 +48,14 @@ export default function Sources() {
         <h1>Sources</h1>
         <div className="filters">
           <input type="search" className="input" placeholder="Filter by IP, country or ASN…" value={text} onChange={(e) => setText(e.target.value)} aria-label="Filter sources" />
+          {port && (
+            <span className="filter-chip">
+              port {port}
+              <button type="button" aria-label="Clear the port filter" onClick={() => setQuery({ port: null })}>
+                ×
+              </button>
+            </span>
+          )}
           <label className="toggle">
             <input type="checkbox" checked={flagged} onChange={(e) => setQuery({ flagged: e.target.checked })} />
             Flagged only

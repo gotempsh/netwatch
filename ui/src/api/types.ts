@@ -170,8 +170,8 @@ export interface Overview {
   host: string;
   version: string;
   interface: string;
-  /** Linux: XDP mode. macOS: "capture" (/dev/bpf), "capture+pf" when pf drops bans. */
-  attach_mode: "driver" | "skb" | "capture" | "capture+pf";
+  /** Linux: XDP mode. macOS: "capture" (/dev/bpf), "capture+pf" when pf drops bans, "capture+pf-unreferenced" when pf runs but pf.conf never evaluates the anchor. */
+  attach_mode: "driver" | "skb" | "capture" | "capture+pf" | "capture+pf-unreferenced";
   /** Where the daemon runs (absent from older daemons, which are all Linux). */
   platform?: "linux" | "macos";
   mode: "observe" | "enforce";
@@ -452,7 +452,7 @@ export interface Destinations {
   rows: Destination[];
 }
 
-export type DestinationSort = "flows" | "bytes" | "last" | "first";
+export type DestinationSort = "flows" | "bytes" | "last" | "first" | "failed";
 
 export type FlowView = "active" | "history" | "all";
 export type FlowSort = "bytes" | "rate" | "last" | "first" | "retrans";

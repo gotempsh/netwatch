@@ -47,7 +47,7 @@ Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daem
 | Service | systemd | launchd |
 
 - **Defaults.** `interface = "auto"` is the default-route interface, usually `en0`. Flows are also recorded on `utun*` (Tailscale, WireGuard and other VPNs) and `bridge*` (UTM, Lima and other VMs). Docker Desktop runs its containers in a VM, so they show up as one bridged VM, not per container.
-- **Bans.** The stock `/etc/pf.conf` evaluates `anchor "com.apple/*"`, so bans work without editing it. netwatch enables pf with a reference token, and removes its rules and releases pf when it stops, so bans only hold while it runs, as with XDP. With a custom `pf.conf` that lacks that anchor, add `anchor "com.apple/netwatch"` to it.
+- **Bans.** The stock `/etc/pf.conf` evaluates `anchor "com.apple/*"`, so bans work without editing it. netwatch enables pf with a reference token, and removes its rules and releases pf when it stops, so bans only hold while it runs, as with XDP. With a custom `pf.conf` that lacks that anchor, add `anchor "com.apple/netwatch"` to it. Until you do, the sensor reports `capture+pf-unreferenced`, and the UI shows bans as counted, not dropped.
 - **Capture cost.** Capture happens in userspace, so CPU use grows with traffic. That's fine for a workstation or a small server; it isn't line rate like XDP. Packets are cut at about 1.2 KB, and the log warns if the kernel drops captures.
 - **Linux-only settings.** `xdp_mode`, `drop_syn_ip_options` and the CVE-2026-98432 alerts (a Linux TCP bug) don't apply. `ssh_units` is replaced by the unified log.
 - **SSH.** SSH alerts need Remote Login (System Settings › General › Sharing). Without it, the "sshd accepts passwords" check is skipped.

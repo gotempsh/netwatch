@@ -13,7 +13,7 @@ import { LaneLegend, Lanes, SevIcon, type Sev } from "../components/viz";
 import { laneFor } from "../components/timeline";
 import { useNow } from "../lib/clock";
 import { fmtBits, fmtBytes, fmtDayHour, fmtDuration, fmtInt, fmtRate, fmtRelative } from "../lib/format";
-import { bansDrop, banMatched } from "../lib/mode";
+import { bansDrop, banMatched, dryRun } from "../lib/mode";
 import { href, sourceHref } from "../lib/router";
 import { rowFromDetail } from "../lib/timeline";
 
@@ -93,6 +93,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
   }
 
   const drops = !ov.data || bansDrop(ov.data);
+  const dry = ov.data ? dryRun(ov.data) : null;
   const top = [...d.findings].sort((a, b) => b.score - a.score)[0];
   const active = now - d.last_seen < 600;
   const pending = d.proposals.find((p) => p.status === "pending");
@@ -114,8 +115,8 @@ export default function SourceDetail({ ip }: { ip: string }) {
               : "Nothing suspicious";
   const next = pending
     ? { label: `Approve the proposed ${pending.action} (#${pending.id})`, cmd: pending.approve_cmd }
-    : d.ban && !drops
-      ? { label: "This ban only counts: set drop_banned = true and restart netwatch", cmd: "sudoedit /etc/netwatch/netwatch.toml" }
+    : d.ban && dry
+      ? { label: `This ban only counts because ${dry.why}. ${dry.fix}`, cmd: dry.cmd }
       : !d.banned && !d.allowlisted && d.score >= 60
         ? { label: "To ban it, run on the server", cmd: banCmd(d.ip) }
         : null;
@@ -127,7 +128,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
     (e) => e.user,
   );
   const targets = count(d.flows, (f) => `${f.process ?? f.app?.proto ?? "?"} on ${f.local}:${f.lport}`);
-  const peerList = (peers.data ?? []).filter((s) => s.ip !== d.ip);
+  const peerList = (peers.data ?? []).filter((s) => s.ip !== d.ip && s.geo.asn === d.geo.asn);
   const lane = laneFor(row, drops);
   const synLane = { ...lane, key: `${d.ip}-syn`, label: <span className="muted small">SYN per hour</span>, side: null, events: [], ban: null, cells: row.hours.map((h) => ({ ts: h.hour, v: h.syn })) };
   const story = [
@@ -187,7 +188,7 @@ export default function SourceDetail({ ip }: { ip: string }) {
           {d.ban ? (
             <Fact sev={drops ? "ok" : "warn"} title={drops ? `Ban dropped ${fmtInt(d.ban.dropped)} packets` : `Ban matched ${fmtInt(banMatched(d.ban))} packets, dropped none`}>
               {d.ban.target !== d.ip ? `banned as part of ${d.ban.target} · ` : ""}
-              {drops ? "" : "a dry run lets them through · "}
+              {dry ? `${dry.why}, so they went through · ` : ""}
               {d.ban.expires ? `expires in ${fmtDuration(Math.max(0, d.ban.expires - now))}` : "permanent"}
             </Fact>
           ) : (

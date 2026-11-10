@@ -24,7 +24,8 @@ const COLUMN = 9;
 const HOSTILE = 4;
 type Side = [key: string, label: string, sub: string, filter: GraphNode["filter"]];
 
-const failure = (f: FlowRow): GraphEdge["reason"] => (f.state === "unanswered" ? "unanswered" : f.state === "failed" ? ((f.connect_ms ?? 0) >= 3000 ? "timed out" : "refused") : null);
+// As flow_failure in api.rs: a failed connect that kept retrying for 3 s or more timed out.
+const failure = (f: FlowRow): GraphEdge["reason"] => (f.state === "unanswered" ? "unanswered" : f.state === "failed" ? (f.last_seen - f.first_seen >= 3 ? "timed out" : "refused") : null);
 const ownerOf = (f: FlowRow) => f.container ?? f.unit ?? f.process ?? null;
 const shortName = (n: string) => (n.endsWith(".ts.net") && n.includes(".tail") ? n.slice(0, n.indexOf(".tail")) : n);
 

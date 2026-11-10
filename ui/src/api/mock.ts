@@ -1062,6 +1062,7 @@ function destinations(q: URLSearchParams): Destinations {
     last: (d) => d.last_seen,
     first: (d) => d.first_seen,
     flows: (d) => d.flows,
+    failed: (d) => d.failed,
   };
   const k = key[q.get("sort") ?? "flows"] ?? key.flows;
   rows.sort((a, b) => k(b) - k(a));
@@ -1456,8 +1457,14 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
   if (p === "/api/sources") {
     let list = allSources();
     const needle = (q.get("q") ?? "").toLowerCase();
-    if (needle) list = list.filter((s) => [s.ip, s.geo.country_code, s.geo.country, s.geo.as_org, s.geo.asn ? `as${s.geo.asn}` : ""].some((v) => v && String(v).toLowerCase().includes(needle)));
+    // As the daemon: "as174" is exactly AS174, anything else a substring.
+    const asn = /^as(\d+)$/.exec(needle)?.[1];
+    if (asn) list = list.filter((s) => s.geo.asn === Number(asn));
+    else if (needle) list = list.filter((s) => [s.ip, s.geo.country_code, s.geo.country, s.geo.as_org, s.geo.asn ? `as${s.geo.asn}` : ""].some((v) => v && String(v).toLowerCase().includes(needle)));
     if (q.get("flagged") === "1") list = list.filter((s) => s.score > 0);
+    // The demo's scanners probe every common port; its brute-forcers only 22.
+    const port = Number(q.get("port"));
+    if (port) list = list.filter((s) => s.findings.length > 0 && (port === 22 || !s.ssh.failed));
     const key = q.get("sort") ?? "score";
     const val: Record<string, (s: Source) => number> = {
       score: (s) => s.score,

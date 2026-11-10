@@ -18,30 +18,43 @@ function serviceCmd(o: Overview) {
   return o.platform === "macos" ? "sudo launchctl print system/dev.netwatch" : "systemctl status netwatch";
 }
 
-function Verdict({ issues, o, down, lastOk }: { issues: Issue[]; o: Overview; down: boolean; lastOk: number | null }) {
-  if (down)
-    return (
-      <section className="verdict sev-critical" aria-live="polite">
-        <div className="verdict-main">
-          <SevIcon sev="critical" size={22} />
-          <div>
-            <h1 className="verdict-title">netwatch is not answering</h1>
-            <p className="verdict-sub">
-              {lastOk ? (
-                <>
-                  What you see is from <RelTime ts={lastOk / 1000} />.{" "}
-                </>
-              ) : null}
-              The page retries on its own; until it answers, nothing here is current.
-            </p>
-          </div>
+// The daemon stopped answering, or never answered since the page loaded (no overview
+// yet, so the platform is unknown and both service commands are shown).
+function DownVerdict({ o, lastOk }: { o: Overview | null; lastOk: number | null }) {
+  return (
+    <section className="verdict sev-critical" aria-live="polite">
+      <div className="verdict-main">
+        <SevIcon sev="critical" size={22} />
+        <div>
+          <h1 className="verdict-title">netwatch is not answering</h1>
+          <p className="verdict-sub">
+            {lastOk ? (
+              <>
+                What you see is from <RelTime ts={lastOk / 1000} />.{" "}
+              </>
+            ) : null}
+            {o ? "The page retries on its own; until it answers, nothing here is current." : "The page retries on its own."}
+          </p>
         </div>
-        <div className="next">
-          <span className="next-label">Check the service on the server</span>
+      </div>
+      <div className="next">
+        <span className="next-label">Check the service on the server</span>
+        {o ? (
           <Command cmd={serviceCmd(o)} />
-        </div>
-      </section>
-    );
+        ) : (
+          <>
+            <Command cmd="systemctl status netwatch" />
+            <span className="next-label">On macOS</span>
+            <Command cmd="sudo launchctl print system/dev.netwatch" />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Verdict({ issues, o, down, lastOk }: { issues: Issue[]; o: Overview; down: boolean; lastOk: number | null }) {
+  if (down) return <DownVerdict o={o} lastOk={lastOk} />;
   const crit = issues.filter((i) => i.sev === "critical");
   const warn = issues.filter((i) => i.sev === "warn");
   const sev: Sev = crit.length ? "critical" : warn.length ? "warn" : "ok";
@@ -109,13 +122,15 @@ export default function Status() {
   const props = usePoll<Proposal[]>("/api/proposals?status=pending", 10_000);
   const ev = usePoll<ConnEvent[]>(connEventsPath({ window: "24h", kind: "connect_failed", limit: 2000 }), 30_000);
   const dest = usePoll<Destinations>(destinationsPath({ window: "24h", sort: "bytes", limit: 50 }), 30_000);
+  // Failing remotes move no bytes, so they're looked up among the most-failed instead.
+  const failedDest = usePoll<Destinations>(destinationsPath({ window: "24h", sort: "failed", limit: 50 }), 30_000);
   const lis = usePoll<Listener[]>("/api/listeners", 30_000);
   const sum = usePoll<Summary>("/api/summary?window=24h", 30_000);
   const src = usePoll<Source[]>("/api/sources?flagged=1&sort=score&limit=100", 15_000);
   const ifs = usePoll<InterfacesInfo>("/api/interfaces", 60_000);
   const tl = usePoll<Timeline>("/api/timeline?window=24h&limit=5", 30_000);
 
-  const fails = useMemo(() => failGroups(ev.data ?? [], dest.data?.rows ?? []), [ev.data, dest.data]);
+  const fails = useMemo(() => failGroups(ev.data ?? [], failedDest.data?.rows ?? []), [ev.data, failedDest.data]);
   const derived = useMemo(() => (ins.data && props.data ? deriveIssues(ins.data, props.data, fails, now, ov.data?.platform) : null), [ins.data, props.data, fails, now, ov.data?.platform]);
 
   const chart = useMemo(() => {
@@ -133,8 +148,14 @@ export default function Status() {
   if (!o || !derived)
     return (
       <div className="page roomy">
-        <h1 className="sr-only">Status</h1>
-        <PanelState loading={ov.loading || ins.loading} error={ov.error ?? ins.error} />
+        {conn.reachable ? (
+          <>
+            <h1 className="sr-only">Status</h1>
+            <PanelState loading={ov.loading || ins.loading} error={ov.error ?? ins.error} />
+          </>
+        ) : (
+          <DownVerdict o={o ?? null} lastOk={conn.lastOk} />
+        )}
       </div>
     );
 

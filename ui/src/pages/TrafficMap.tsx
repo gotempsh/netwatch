@@ -9,6 +9,7 @@ import { PanelState, RelTime, Segmented } from "../components/ui";
 import { SevIcon, useWidth } from "../components/viz";
 import { fmtBytes, fmtInt } from "../lib/format";
 import { href, useQueryState } from "../lib/router";
+import { FAIL_MIN } from "../lib/status";
 
 const ROW = 40;
 const WINDOWS = [
@@ -138,7 +139,8 @@ function EdgeTable({ g }: { g: FlowGraph }) {
 }
 
 const owner = (f: FlowRow) => f.container ?? f.unit ?? f.process ?? "unknown process";
-const failWord = (f: FlowRow) => (f.state === "unanswered" ? "unanswered" : (f.connect_ms ?? 0) >= 3000 ? "timed out" : "refused");
+// The map's split (flow_failure in api.rs): connect_ms is only set on a handshake.
+const failWord = (f: FlowRow) => (f.state === "unanswered" ? "unanswered" : f.last_seen - f.first_seen >= 3 ? "timed out" : "refused");
 
 export default function TrafficMap() {
   const [q, setQ] = useQueryState();
@@ -163,7 +165,9 @@ export default function TrafficMap() {
     );
 
   const rows = Math.max(data.inbound.left.length, data.inbound.right.length, data.outbound.left.length, data.outbound.right.length);
-  const failing = data.outbound.left.filter((n) => n.failed > 0 && !n.folded);
+  // Status's threshold: a program counts as failing after FAIL_MIN failed connects.
+  const failing = data.outbound.left.filter((n) => n.failed >= FAIL_MIN && !n.folded);
+  const stray = data.outbound.left.filter((n) => n.failed < FAIL_MIN && !n.folded).reduce((a, n) => a + n.failed, 0);
   const focus = hover ?? picked;
   const pick = (n: GraphNode) => setQ({ node: n.key === picked ? null : n.key });
   const span = WINDOWS.find((w) => w.value === win)!.label;
@@ -179,9 +183,11 @@ export default function TrafficMap() {
             {data.truncated ? " (the most recent ones)" : ""}.{" "}
             {failing.length ? (
               <b className="hot">
-                {failing.length} program{failing.length === 1 ? " can't" : "s can't"} connect: {failing.map((n) => n.label).join(", ")}.
+                Failing: {failing.map((n) => `${n.label} (${fmtInt(n.failed)} of ${fmtInt(n.flows)})`).join(", ")}.
               </b>
-            ) : empty ? null : (
+            ) : empty ? null : stray ? (
+              `${fmtInt(stray)} outbound connection${stray === 1 ? "" : "s"} failed, none of them repeatedly.`
+            ) : (
               "Every program reached what it asked for."
             )}
           </p>

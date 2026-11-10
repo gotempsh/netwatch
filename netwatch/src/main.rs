@@ -853,12 +853,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                             format!("in {}", util::fmt_secs(e - now))
                         }),
                         b["dropped"].to_string(),
-                        b["reason"]
-                            .as_str()
-                            .unwrap_or("")
-                            .chars()
-                            .take(80)
-                            .collect(),
+                        truncate(b["reason"].as_str().unwrap_or(""), 80),
                     ]
                 })
                 .collect();
@@ -885,12 +880,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                         p["ttl_secs"].as_i64().map_or("-".into(), util::fmt_secs),
                         p["source"].as_str().unwrap_or("").into(),
                         p["status"].as_str().unwrap_or("").into(),
-                        p["reason"]
-                            .as_str()
-                            .unwrap_or("")
-                            .chars()
-                            .take(80)
-                            .collect(),
+                        truncate(p["reason"].as_str().unwrap_or(""), 80),
                     ]
                 })
                 .collect();

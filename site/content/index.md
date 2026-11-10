@@ -25,7 +25,7 @@ flowchart LR
   kernel -- "flows, owners,<br/>SSH logins" --> daemon("netwatch daemon")
   daemon -- "bans you approve" --> kernel
   daemon --> ui("Web UI and CLI<br/>on 127.0.0.1")
-  daemon --> slack("Slack alerts")
+  daemon --> out("Slack alerts,<br/>OpenTelemetry")
 ```
 
 It runs as root and sees all your traffic, so [Security and privacy](/security) lists what it does with that: every request it makes to the internet, what it stores, and how to verify a release. [Compared to other tools](/comparison) sets it next to fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch and Little Snitch.

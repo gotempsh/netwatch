@@ -31,6 +31,20 @@ const NAV: { path: string; label: string; match: (p: string) => boolean }[] = [
   { path: "/policy", label: "Policy & AI", match: (p) => p === "/policy" },
 ];
 
+// The hosted demo on the docs site (`npm run build:demo`) says on every page that
+// it isn't a real server. Plain `dev:mock` stays unmarked for the screenshots.
+const DEMO = import.meta.env.VITE_DEMO === "1";
+
+function DemoBanner() {
+  return (
+    <div className="banner banner-demo" role="note">
+      <strong>Demo data — not a real server.</strong>
+      <span className="muted">Everything here is generated in your browser.</span>
+      <a href={import.meta.env.VITE_INSTALL_URL || "https://gotempsh.github.io/netwatch/installation/"}>Install netwatch</a>
+    </div>
+  );
+}
+
 function ConnectivityBanner() {
   const c = useConnectivity();
   if (c.reachable) return null;
@@ -121,6 +135,7 @@ export default function App() {
           </span>
         </div>
       </header>
+      {DEMO && <DemoBanner />}
       <ConnectivityBanner />
       <main className="main">{page}</main>
     </div>

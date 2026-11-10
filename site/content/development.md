@@ -43,14 +43,17 @@ npm --prefix ui run dev:mock     # against built-in demo data, no daemon needed
 npm --prefix ui run dev          # against a local daemon on :9180
 ```
 
-The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show.
+The demo data in `ui/src/api/mock.ts` is what the screenshots in these docs show, and what the [live demo](/demo/) runs on.
 
 ## Docs
 
 ```shell
 npm --prefix site ci
 npm --prefix site run dev        # http://127.0.0.1:4321, rebuilds on change
+npm --prefix ui run build:demo   # the live demo, into site/dist/demo/
 ```
+
+The demo is the UI built with `--mode demo`: mock data, no API calls, and a banner on every page saying so. The UI uses hash routes (`demo/#/sources`), so deep links and refreshes work on GitHub Pages with no fallback page. Build it after the site: the site build empties `site/dist/`, and so does each rebuild of `run dev`.
 
 Pages are Markdown in `site/content/`. Each one is also published as `<page>.md`, and `llms.txt` and `llms-full.txt` list them for agents.
 

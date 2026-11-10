@@ -255,6 +255,16 @@ button {
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
   font-size: 12.5px;
 }
+.banner-demo {
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.banner-demo a {
+  color: var(--link);
+  font-weight: 500;
+}
 .banner-dot {
   width: 8px;
   height: 8px;
@@ -343,6 +353,9 @@ button {
 @media (max-width: 760px) {
   .main {
     padding: 12px;
+  }
+  .banner {
+    padding: 7px 12px;
   }
   /* Brand and status on the first row, the nav as a full-width scrolling strip
      below, faded at the right edge so it reads as scrollable. */

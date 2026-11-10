@@ -6,7 +6,7 @@ description: A tour of every page in the web UI, what it shows and the command t
 
 The UI is built into the binary and served with the API on `127.0.0.1:9180`. It is read-only: it can't ban, approve or change settings, so exposing it through a tunnel can't change anything on the host. Every page refreshes on its own, follows your system's light or dark theme, and works on a phone.
 
-> The screenshots on this page use the UI's built-in demo data, not a real host. To click through the same demo without installing anything, run `npm --prefix ui ci && npm --prefix ui run dev:mock` in a checkout.
+> The screenshots on this page use the UI's built-in demo data, not a real host. **[Open the live demo](/demo/)** to click through the same data in your browser, without installing anything.
 
 ## Overview
 

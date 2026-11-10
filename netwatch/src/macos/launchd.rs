@@ -77,6 +77,26 @@ fn update_plist(config: &Path) -> String {
     )
 }
 
+/// The `--config` path in the installed daemon's plist.
+pub fn installed_config() -> Option<PathBuf> {
+    config_in_plist(&std::fs::read_to_string(plist_path(LABEL)).ok()?)
+}
+
+fn config_in_plist(plist: &str) -> Option<PathBuf> {
+    let strings: Vec<String> = plist
+        .split("<string>")
+        .skip(1)
+        .filter_map(|s| s.split_once("</string>"))
+        .map(|(v, _)| {
+            v.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+        })
+        .collect();
+    let i = strings.iter().position(|s| s == "--config")?;
+    strings.get(i + 1).map(PathBuf::from)
+}
+
 pub fn update_job_installed() -> bool {
     plist_path(UPDATE_LABEL).exists()
 }
@@ -120,6 +140,9 @@ fn require_root(what: &str) -> anyhow::Result<()> {
 /// the GeoIP databases and (re)starts the launchd daemons.
 pub fn install(config: &Path) -> anyhow::Result<()> {
     require_root("install")?;
+    // The plist keeps this path, and update and uninstall read it back: a
+    // relative one would mean something else from another directory.
+    let config = &std::path::absolute(config)?;
     let exe = std::env::current_exe()?.canonicalize()?;
     std::fs::create_dir_all("/usr/local/bin")?;
     if exe != Path::new(BIN) {
@@ -180,9 +203,14 @@ fn installed_binaries() -> [&'static str; 2] {
 
 pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     require_root("uninstall")?;
+    // Booting out the update job would stop an update halfway through; the
+    // lock is in the data directory of the config the daemon runs with.
+    let installed = Config::load(&crate::update::installed_config(config)).unwrap_or_default();
+    let _lock = crate::update::Lock::take(&installed)?;
+    // --purge deletes directories, so only the ones the given config (the
+    // default unless --config says otherwise) names, never ones read from
+    // the plist.
     let cfg = Config::load(config).unwrap_or_default();
-    // Booting out the update job would stop an update halfway through.
-    let _lock = crate::update::Lock::take(&cfg)?;
     for label in [LABEL, GEOIP_LABEL, UPDATE_LABEL] {
         let _ = launchctl(&["bootout", &format!("system/{label}")]);
         let _ = std::fs::remove_file(plist_path(label));
@@ -269,6 +297,15 @@ pub fn update_geoip(cfg: &Config) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_config_path_back_from_the_plist() {
+        for path in ["/etc/netwatch/netwatch.toml", "/opt/a&b <x>/netwatch.toml"] {
+            let p = daemon_plist(Path::new(path));
+            assert_eq!(config_in_plist(&p), Some(PathBuf::from(path)));
+        }
+        assert_eq!(config_in_plist("<plist></plist>"), None);
+    }
 
     #[test]
     fn uninstall_removes_the_binary_update_kept() {

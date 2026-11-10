@@ -9,7 +9,7 @@ TC programs keep a table of every flow on the primary interface, and on Tailscal
 ## What each flow records
 
 - direction (who connected to whom), bytes, packets and rates each way;
-- TCP state, connect latency, retransmits and resets;
+- TCP state, connect latency, retransmits and resets. A SYN that no TCP packet answered is `unanswered`, not `established`: a probe of a closed port that a firewall or macOS stealth mode dropped, or that a firewall refused with ICMP (`REJECT`, firewalld's default). The kernel's own refusal, a RST, makes it `closed`. The ICMP reply is recorded as a flow of its own;
 - the owning process, with its systemd service or Docker container. This comes from the TCP tracepoints and a `/proc` scan every 15 s, so it also covers UDP, listeners and connections opened before netwatch started;
 - application metadata parsed from the first payload in each direction: TLS SNI and ALPN, HTTP method, host, path, user agent and status, and SSH banners;
 - the DNS name the remote address was resolved from.

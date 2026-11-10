@@ -38,6 +38,7 @@ const DNS_FLOW_TTL: i64 = 30;
 
 const TCP_FIN: u8 = 0x01;
 const TCP_RST: u8 = 0x04;
+const TCP_ACK: u8 = 0x10;
 
 pub fn tcp_state_name(s: u8) -> &'static str {
     match s {
@@ -183,6 +184,10 @@ impl Flow {
         }
         match self.tcp_state {
             Some(s) => tcp_state_name(s).into(),
+            // No socket here took it and no TCP packet came back: a SYN to a
+            // closed port that a firewall (or macOS stealth mode) dropped, or
+            // refused with ICMP, which is a flow of its own and isn't seen here.
+            None if (self.flags_in | self.flags_out) & TCP_ACK == 0 => "unanswered".into(),
             None => "established".into(),
         }
     }
@@ -2105,6 +2110,39 @@ mod tests {
         t.observe(vec![(k, st2)], &[], &clock, now, 1.0);
         let f = &t.active[&k];
         assert_eq!((f.bytes_in, f.bytes_out, f.dir), (1300, 200, Dir::Out));
+    }
+
+    #[test]
+    fn a_probe_nothing_answered_is_not_established() {
+        let clock = BootClock::new();
+        let ns = crate::util::boot_now_ns();
+        let now = crate::util::now_unix();
+        let state = |flags_in, flags_out| {
+            let mut t = FlowTable::new((32768, 60999));
+            let k = key("10.0.0.2", 3389, "203.0.113.50", 40001, PROTO_TCP);
+            let st = FlowStats {
+                bytes_in: 60,
+                pkts_in: 1,
+                pkts_out: u64::from(flags_out != 0),
+                flags_in,
+                flags_out,
+                initiator: INIT_REMOTE,
+                first_seen_ns: ns,
+                last_seen_ns: ns,
+                ..Default::default()
+            };
+            t.observe(vec![(k, st)], &[], &clock, now, 1.0);
+            t.active[&k].state()
+        };
+        const SYN: u8 = 0x02;
+        // Dropped by a firewall or macOS stealth mode, or refused with ICMP
+        // (REJECT): either way no TCP packet answered on this flow.
+        assert_eq!(state(SYN, 0), "unanswered");
+        // Refused by the kernel.
+        assert_eq!(state(SYN, TCP_RST | TCP_ACK), "closed");
+        // Answered, or a connection that was already open when netwatch started.
+        assert_eq!(state(SYN | TCP_ACK, SYN | TCP_ACK), "established");
+        assert_eq!(state(TCP_ACK, TCP_ACK), "established");
     }
 
     #[test]

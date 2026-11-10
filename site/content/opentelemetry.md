@@ -10,6 +10,19 @@ Each netwatch watches one host and keeps its UI on `127.0.0.1`. To see every ser
 
 It pushes over OTLP/HTTP with protobuf. Like Slack, it is outbound only: nothing new listens on the host.
 
+```mermaid
+flowchart LR
+  subgraph hosts ["Your servers"]
+    a["netwatch<br/>web-1"]
+    b["netwatch<br/>db-1"]
+  end
+  a -- "OTLP/HTTP<br/>metrics and events" --> col["OpenTelemetry<br/>Collector"]
+  b -- "OTLP/HTTP" --> col
+  col -- "metrics" --> prom["Prometheus<br/>Grafana"]
+  col -- "events" --> loki["Loki, a SIEM"]
+  a -. "or straight to" .-> hosted["Grafana Cloud,<br/>Honeycomb, …"]
+```
+
 ## Turn it on
 
 ```toml
@@ -22,6 +35,47 @@ logs = true                          # events as log records
 ```
 
 Restart netwatch. The log says `opentelemetry: sending metrics and events to …`.
+
+## Check that it arrives
+
+Before wiring a backend, point netwatch at a collector that prints what it receives:
+
+```yaml
+# collector.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+exporters:
+  debug:
+    verbosity: detailed
+service:
+  pipelines:
+    metrics: { receivers: [otlp], exporters: [debug] }
+    logs: { receivers: [otlp], exporters: [debug] }
+```
+
+```shell
+docker run --rm --network host \
+  -v $PWD/collector.yaml:/etc/otelcol-contrib/config.yaml:ro \
+  otel/opentelemetry-collector-contrib
+```
+
+The `netwatch.started` event shows up as soon as netwatch starts, and the metrics after `interval_secs`. A finding looks like this:
+
+```text
+SeverityText: WARN
+EventName: netwatch.finding
+Body: Str(Port scan: 299 local ports in 10 min (298 closed): 1, 2, 3, 4, 5, 6, +293 more)
+Attributes:
+     -> source.address: Str(203.0.113.9)
+     -> netwatch.finding.kind: Str(port_scan)
+     -> netwatch.score: Int(90)
+     -> netwatch.location: Str(--)
+```
+
+Nothing arriving? See [When the collector is down](#when-the-collector-is-down) for what netwatch logs.
 
 Backends that need a token take it as a header. Put the headers in `/etc/netwatch/env` (mode 0600), in the standard `OTEL_EXPORTER_OTLP_HEADERS` format, `key=value` pairs separated by commas, with values percent-encoded:
 
@@ -45,6 +99,8 @@ receivers:
 exporters:
   prometheus:
     endpoint: 0.0.0.0:8889          # scrape this from Prometheus
+    resource_to_telemetry_conversion:
+      enabled: true                 # a host_name label on every series
   otlphttp/loki:
     endpoint: http://loki:3100/otlp
 
@@ -64,7 +120,55 @@ docker run -d --name otelcol --network host \
   otel/opentelemetry-collector-contrib
 ```
 
-Hosted backends (Grafana Cloud, Honeycomb, Datadog, New Relic, …) accept OTLP/HTTP directly: set `endpoint` to their OTLP URL and the token in `OTEL_EXPORTER_OTLP_HEADERS`.
+With one collector for many hosts, have it listen on an address the hosts can reach (`0.0.0.0:4318`, behind your firewall or a private network), and set each netwatch's `endpoint` to it.
+
+## Straight to a hosted backend
+
+Hosted backends accept OTLP/HTTP directly: set `endpoint` to their OTLP URL and the token in `/etc/netwatch/env`. Each backend's documentation has the URL for your region.
+
+**Grafana Cloud** (metrics to Mimir, events to Loki). The stack's OpenTelemetry page shows the endpoint, the instance ID and a token; the header is `Basic` with base64 of `instance-id:token`:
+
+```toml
+[otel]
+enabled = true
+endpoint = "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp"
+```
+
+```shell
+# /etc/netwatch/env
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20MTIzNDU2OmdsY19leGFtcGxl
+```
+
+**Honeycomb**. Metrics need a dataset name; events go to the `netwatch` dataset on their own, from `service.name`:
+
+```toml
+[otel]
+enabled = true
+endpoint = "https://api.honeycomb.io"
+```
+
+```shell
+# /etc/netwatch/env
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=YOUR_API_KEY
+OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-honeycomb-team=YOUR_API_KEY,x-honeycomb-dataset=netwatch-metrics
+```
+
+Datadog, New Relic and others work the same way where they take OTLP/HTTP; otherwise send to a collector and use its exporter for them.
+
+## In Docker
+
+Add `[otel]` to the mounted `netwatch.toml` and pass the header variables with `-e`, as for Slack (see [Docker](/docker#configuration)):
+
+```shell
+docker run -d --name netwatch --restart unless-stopped --stop-timeout 30 \
+  --network host --pid host --privileged \
+  -v netwatch-data:/var/lib/netwatch -v /run/netwatch:/run/netwatch \
+  -v /etc/netwatch/netwatch.toml:/etc/netwatch/netwatch.toml:ro \
+  -e OTEL_EXPORTER_OTLP_HEADERS -e OTEL_RESOURCE_ATTRIBUTES \
+  ghcr.io/gotempsh/netwatch:latest
+```
+
+With `--network host`, `http://127.0.0.1:4318` reaches a collector on the same host.
 
 ## Metrics
 
@@ -98,6 +202,37 @@ Through the collector's Prometheus exporter the names become `netwatch_packets_t
 
 There are no per-address series: thousands of source addresses would overwhelm a metrics backend. Per-address detail is in the events. The per-process metrics name the 20 busiest processes (by name, container and service, never by pid) and add the rest up as `other`.
 
+## Queries and alerts
+
+With the collector configuration above, in Prometheus:
+
+```text
+# Packets dropped from banned sources, per host
+sum by (host_name) (rate(netwatch_packets_banned_total[5m]))
+
+# Ban proposals waiting for a person (alert when > 0 for 15m)
+max by (host_name) (netwatch_proposals_pending) > 0
+
+# A service started listening on a non-loopback address
+delta(netwatch_listeners_exposed[10m]) > 0
+
+# Received throughput per interface
+netwatch_interface_throughput_bit_per_second{network_io_direction="receive"}
+```
+
+Events land in Loki with their attributes as fields, dots turned into underscores:
+
+```text
+# Every finding about one address
+{service_name="netwatch"} | source_address="203.0.113.9"
+
+# Port scans per source in the last hour
+sum by (source_address) (count_over_time({service_name="netwatch"} | netwatch_finding_kind="port_scan" [1h]))
+
+# Failed SSH logins on one host
+{service_name="netwatch"} | host_name="web-1" | netwatch_ssh_event="failed"
+```
+
 ## Events
 
 Each event is a log record with an event name, a severity, a readable body and attributes:
@@ -112,7 +247,7 @@ Each event is a log record with an event name, a severity, a readable body and a
 | `netwatch.ssh` | an SSH or Tailscale SSH login, failure or invalid user | INFO | `netwatch.ssh.event`, `user.name`, `source.address`, `netwatch.ssh.method`, `netwatch.location` |
 | `netwatch.listener` | a service starts or stops listening | WARN when it starts on a public or wildcard address (as the Slack alert), else INFO; `netwatch.exposed` is true for any address but loopback, as `netwatch.listeners.exposed` counts | `netwatch.listener.event`, `network.transport`, `server.address`, `server.port`, `netwatch.exposed`, `process.executable.name`, `process.pid`, `container.name`, `netwatch.unit` |
 
-`netwatch.finding.kind` is one of the [finding kinds](/bans-and-policy#rules-as-json), and `netwatch.ttl` is in seconds. Unlike Slack, every event is sent: filter in the collector or the backend.
+`netwatch.finding.kind` is one of the [finding kinds](/bans-and-policy#rules-as-json), and `netwatch.ttl` is in seconds. `netwatch.ssh.event` is `accepted`, `failed` or `invalid_user`, and `netwatch.listener.event` is `listen` or `unlisten`. Unlike Slack, every event is sent: filter in the collector or the backend.
 
 ## When the collector is down
 

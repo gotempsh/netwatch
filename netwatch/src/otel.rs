@@ -923,6 +923,41 @@ fn top_processes(mut all: Vec<ProcessRate>, n: usize) -> Vec<ProcessRate> {
 mod tests {
     use super::*;
 
+    const DOC: &str = include_str!("../../site/content/opentelemetry.md");
+
+    #[test]
+    fn the_documented_headers_are_accepted() {
+        let mut n = 0;
+        for line in DOC.lines() {
+            if let Some((var, value)) = line.split_once('=')
+                && var.starts_with("OTEL_EXPORTER_OTLP_")
+            {
+                check_header_list(value, var).unwrap_or_else(|e| panic!("{line}: {e}"));
+                n += 1;
+            }
+        }
+        assert!(n >= 3, "found {n} header examples");
+    }
+
+    #[test]
+    fn the_documented_settings_exist() {
+        let known = toml::Value::try_from(OtelConfig::default()).unwrap();
+        let mut n = 0;
+        for block in DOC.split("```toml\n").skip(1) {
+            let block = block.split("```").next().unwrap();
+            let doc: toml::Value = toml::from_str(block).unwrap_or_else(|e| panic!("{block}: {e}"));
+            let otel = doc["otel"].as_table().expect("an [otel] table");
+            for key in otel.keys() {
+                assert!(known.get(key).is_some(), "otel.{key} is not a setting");
+            }
+            let cfg: crate::config::Config = toml::from_str(block).unwrap();
+            assert!(cfg.otel.enabled);
+            signal_url(&cfg.otel.endpoint, "logs").unwrap();
+            n += 1;
+        }
+        assert!(n >= 3, "found {n} examples");
+    }
+
     #[test]
     fn signal_urls() {
         let u = |e: &str, s: &str| signal_url(e, s).unwrap();

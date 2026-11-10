@@ -287,6 +287,11 @@ pub async fn cloudflare_ranges() -> Vec<IpNet> {
         .collect()
 }
 
+/// How long a discovery command (`tailscale status`, `wg show`, ...) may take.
+/// Startup waits for the allowlist, so a CLI that hangs, such as Tailscale's
+/// when its daemon or app isn't running, must not hold it up.
+const RUN_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
     // The Mac App Store and standalone Tailscale apps keep their CLI inside the bundle.
     #[cfg(target_os = "macos")]
@@ -296,10 +301,59 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
         }
         _ => cmd,
     };
-    let out = crate::host::command(cmd).args(args).output().ok()?;
-    out.status
+    let mut c = crate::host::command(cmd);
+    c.args(args);
+    match run_with_timeout(c, RUN_TIMEOUT) {
+        Ok(out) => out,
+        Err(()) => {
+            log::warn!(
+                "`{cmd} {}` didn't answer within {}s, so its addresses aren't allowlisted until the next try in 10 minutes",
+                args.join(" "),
+                RUN_TIMEOUT.as_secs()
+            );
+            None
+        }
+    }
+}
+
+/// The command's stdout if it exits successfully, `Ok(None)` if it can't be
+/// started or fails, `Err(())` if it is still running after `timeout` (it is
+/// killed then).
+fn run_with_timeout(mut c: std::process::Command, timeout: Duration) -> Result<Option<String>, ()> {
+    use std::{io::Read as _, process::Stdio};
+    let Ok(mut child) = c
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return Ok(None);
+    };
+    // Read while waiting: a full pipe would stop a chatty command from exiting.
+    let mut stdout = child.stdout.take().expect("piped");
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        buf
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20))
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(());
+            }
+        }
+    };
+    let out = reader.join().unwrap_or_default();
+    Ok(status
         .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+        .then(|| String::from_utf8_lossy(&out).into_owned()))
 }
 
 fn endpoint_ip(s: &str) -> Option<IpAddr> {
@@ -474,6 +528,36 @@ fn is_loopback_hex(addr: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::run_with_timeout;
+
+    fn sh(script: &str) -> std::process::Command {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[test]
+    fn a_hanging_command_is_cut_off() {
+        let start = std::time::Instant::now();
+        let r = run_with_timeout(sh("sleep 30"), std::time::Duration::from_millis(200));
+        assert_eq!(r, Err(()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn output_failure_and_missing_commands() {
+        let t = std::time::Duration::from_secs(10);
+        assert_eq!(run_with_timeout(sh("echo hi"), t), Ok(Some("hi\n".into())));
+        assert_eq!(run_with_timeout(sh("echo hi; exit 1"), t), Ok(None));
+        let missing = std::process::Command::new("/nonexistent/netwatch-test");
+        assert_eq!(run_with_timeout(missing, t), Ok(None));
+        // More than a pipe holds: read while waiting, or it never exits.
+        let big = run_with_timeout(sh("head -c 300000 /dev/zero | tr '\\0' a"), t)
+            .unwrap()
+            .unwrap();
+        assert_eq!(big.len(), 300000);
+    }
+
     use super::*;
 
     #[test]

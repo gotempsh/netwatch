@@ -269,7 +269,7 @@ export function ProcessCell({
         {name}
       </button>
     ) : (
-      <a className={`proc-link ${cls}`} title={`${t}\nClick to show its connections.`} href={href("/connections", { process: name })} onClick={(e) => e.stopPropagation()}>
+      <a className={`proc-link ${cls}`} title={`${t}\nClick to show its connections.`} href={href("/traffic/connections", { process: name })} onClick={(e) => e.stopPropagation()}>
         {name}
       </a>
     );

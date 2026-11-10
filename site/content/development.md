@@ -53,7 +53,7 @@ npm --prefix site run dev        # http://127.0.0.1:4321, rebuilds on change
 npm --prefix ui run build:demo   # the live demo, into site/dist/demo/
 ```
 
-The demo is the UI built with `--mode demo`: mock data, no API calls, and a banner on every page saying so. The UI uses hash routes (`demo/#/sources`), so deep links and refreshes work on GitHub Pages with no fallback page. Build it after the site: the site build empties `site/dist/`, and so does each rebuild of `run dev`.
+The demo is the UI built with `--mode demo`: mock data, no API calls, and a banner on every page saying so. The UI uses hash routes (`demo/#/threats/sources`), so deep links and refreshes work on GitHub Pages with no fallback page. Build it after the site: the site build empties `site/dist/`, and so does each rebuild of `run dev`.
 
 Pages are Markdown in `site/content/`. Each one is also published as `<page>.md`, and `llms.txt` and `llms-full.txt` list them for agents.
 

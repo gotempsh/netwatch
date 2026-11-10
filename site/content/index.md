@@ -45,23 +45,23 @@ It runs as root and sees all your traffic, so [Security and privacy](/security) 
 
 <!-- steps -->
 
-### Open the overview
+### Read what needs you
 
-Live packets, SYNs and drops, flagged sources, bans, pending proposals and SSH failures, with the insights that need you and the command that acts on each.
+Status opens with a verdict: all quiet, or what needs you now and what to check, each with the command that acts on it. Below it, who is knocking, who this host talks to and what the internet can reach.
 
-![Overview: live rates, active bans, pending proposals and insights](/screenshots/overview.png)
+![Status: a verdict, what needs you with the command for each item, and who is knocking](/screenshots/status.png)
 
 ### Find who is probing you
 
-Every address that sent traffic, scored 0–100 for what it did: port scans, SSH brute force, exploit requests, threat-feed listings. Open one to see why it scored what it did and every port it touched.
+Every flagged address on one timeline, scored 0–100 for what it did: port scans, SSH brute force, exploit requests, threat-feed listings. Open one to see what it did, when, and whether it got in.
 
-![Sources: addresses with their score, findings, country and network](/screenshots/sources.png)
+![Attack timeline: one lane per flagged source, with when it was flagged, proposed and banned](/screenshots/threats.png)
 
 ### See what talks to what
 
-Every connection in and out, with the process or container that owns it, the DNS name or TLS SNI of the other side, bytes each way, TCP state and latency.
+A map of who connects to which service, and which program on the host connects where, with failing connections in red. Every flow is a click away, with its process or container, the DNS name or TLS SNI of the other side, bytes and TCP state.
 
-![Connections: flows with their owning process, remote name, bytes and state](/screenshots/connections.png)
+![Map: remote hosts, the services and programs on this host, and where they connect](/screenshots/map.png)
 
 ### Follow the logins
 

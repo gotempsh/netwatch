@@ -94,7 +94,7 @@ export default function Ssh() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>SSH</h1>
+        <h1>SSH logins</h1>
         <span className="muted small">
           {fmtInt(events.length)} events loaded · {fmtInt(logins.length)} successful logins · {fmtInt(agg.length)} IPs with failures
         </span>

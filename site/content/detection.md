@@ -46,7 +46,7 @@ netwatch follows `ssh`, `sshd` and Tailscale SSH in journald (the unified log on
 
 It also warns when sshd accepts passwords.
 
-A failed login is a wrong password or a user that doesn't exist, and each password tried counts once. On a server that only takes keys, the usual setup on cloud images, sshd never logs a wrong password, so each try with a nonexistent user counts as one failure. That is the number behind "SSH failures" in `netwatch status` and on the Overview.
+A failed login is a wrong password or a user that doesn't exist, and each password tried counts once. On a server that only takes keys, the usual setup on cloud images, sshd never logs a wrong password, so each try with a nonexistent user counts as one failure. That is the number behind "SSH failures" in `netwatch status` and on the Status page.
 
 ## Insights
 
@@ -57,7 +57,7 @@ Insights turn the data into concrete advice, each with a command to run, for exa
 - "12 scanners from AS14061";
 - "this host talked to a listed IP".
 
-They're on the Overview page and in `netwatch status` and `netwatch insights`.
+They're on the Status page of the web UI, each with the command that acts on it, and in `netwatch status` and `netwatch insights`.
 
 ## Never ban what you depend on
 

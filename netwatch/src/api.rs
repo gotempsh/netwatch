@@ -2,7 +2,7 @@
 //! Shapes match `ui/src/api/types.ts`.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     net::IpAddr,
     sync::Arc,
 };
@@ -64,6 +64,8 @@ pub async fn serve(app: Arc<App>) {
         .route("/api/listeners", get(listeners))
         .route("/api/dns", get(dns))
         .route("/api/conn_events", get(conn_events))
+        .route("/api/timeline", get(timeline))
+        .route("/api/flows/graph", get(flows_graph))
         .fallback(static_file)
         .with_state(app);
     match tokio::net::TcpListener::bind(&addr).await {
@@ -177,6 +179,21 @@ struct SourcesQuery {
     port: Option<u16>,
 }
 
+/// The sources search: "as174" is exactly AS174 (not AS1740 or AS17488); anything
+/// else is a substring of the address, the location ("US AS174 Org") or the country.
+/// `n` is lowercase.
+fn source_matches(s: &IpState, n: &str) -> bool {
+    if let Some(asn) = n.strip_prefix("as").and_then(|d| d.parse::<u32>().ok()) {
+        return s.geo.asn == Some(asn);
+    }
+    s.ip.to_string().contains(n)
+        || s.location.to_lowercase().contains(n)
+        || s.geo
+            .country
+            .as_deref()
+            .is_some_and(|c| c.to_lowercase().contains(n))
+}
+
 async fn sources(State(app): AppState, Query(q): Query<SourcesQuery>) -> Json<Vec<SourceView>> {
     let now = now_unix();
     let e = app.engine.lock().unwrap();
@@ -195,16 +212,7 @@ async fn sources(State(app): AppState, Query(q): Query<SourcesQuery>) -> Json<Ve
         .filter(|s| all || interesting(s))
         .filter(|s| !flagged || s.score > 0)
         .filter(|s| q.port.is_none_or(|p| s.ports.values().any(|t| t.port == p)))
-        .filter(|s| {
-            needle.as_ref().is_none_or(|n| {
-                s.ip.to_string().contains(n.as_str())
-                    || s.location.to_lowercase().contains(n.as_str())
-                    || s.geo
-                        .country
-                        .as_deref()
-                        .is_some_and(|c| c.to_lowercase().contains(n.as_str()))
-            })
-        })
+        .filter(|s| needle.as_ref().is_none_or(|n| source_matches(s, n)))
         .collect();
     let key = |s: &IpState| -> f64 {
         match q.sort.as_deref().unwrap_or("score") {
@@ -249,11 +257,22 @@ fn proposal_view(row: ProposalRow) -> ProposalView {
 struct BanView {
     #[serde(flatten)]
     row: BanRow,
+    /// Packets from the target that hit the ban since daemon start.
+    matched: u64,
+    /// Of those, how many were dropped: all of them, or none in a dry run.
     dropped: u64,
 }
 
-fn ban_view(e: &Engine, row: BanRow) -> BanView {
-    let dropped = crate::util::parse_target(&row.target)
+/// Whether the sensor drops banned packets: `drop_banned`, and on macOS only once
+/// pf has loaded the anchor and its ruleset evaluates it. "capture" (no pf) and
+/// "capture+pf-unreferenced" (pf.conf lacks the anchor) count bans without dropping.
+/// Whether bans drop packets, not just count them.
+pub(crate) fn bans_drop(drop_banned: bool, attach_mode: &str) -> bool {
+    drop_banned && !matches!(attach_mode, "capture" | "capture+pf-unreferenced")
+}
+
+fn ban_view(e: &Engine, row: BanRow, drops: bool) -> BanView {
+    let matched = crate::util::parse_target(&row.target)
         .map(|net| {
             e.states
                 .values()
@@ -262,7 +281,23 @@ fn ban_view(e: &Engine, row: BanRow) -> BanView {
                 .sum()
         })
         .unwrap_or(0);
-    BanView { row, dropped }
+    BanView {
+        row,
+        matched,
+        dropped: if drops { matched } else { 0 },
+    }
+}
+
+/// A source's 200 most recent SSH events, and its accepted logins on their own:
+/// a login followed by hundreds of failures would fall out of the first list.
+fn source_ssh(
+    store: &crate::store::Store,
+    ip: &str,
+) -> anyhow::Result<(Vec<SshEventRow>, Vec<SshEventRow>)> {
+    Ok((
+        store.ssh_events(0, Some(ip), 200)?,
+        store.ssh_logins(0, Some(ip), 50)?,
+    ))
 }
 
 async fn source_detail(
@@ -273,6 +308,7 @@ async fn source_detail(
         .parse()
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid IP".to_string()))?;
     let now = now_unix();
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
     let (mut base, ports, ban) = {
         let e = app.engine.lock().unwrap();
         match e.states.get(&addr) {
@@ -292,7 +328,7 @@ async fn source_detail(
                     })
                     .collect();
                 ports.sort_by_key(|p| (p.port, p.proto));
-                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b));
+                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b, drops));
                 (
                     serde_json::to_value(view(st, now)).map_err(|e| internal(e.into()))?,
                     ports,
@@ -309,7 +345,7 @@ async fn source_detail(
                     "feeds": e.feeds.matches(addr), "feed_hits": e.feeds.hits(addr), "allowlisted": e.is_allowed(addr), "banned": e.ban_for(addr).is_some(),
                     "ssh": {"failed": 0, "invalid_users": 0, "accepted": 0},
                 });
-                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b));
+                let ban = e.ban_for(addr).cloned().map(|b| ban_view(&e, b, drops));
                 (v, Vec::new(), ban)
             }
         }
@@ -344,7 +380,7 @@ async fn source_detail(
         .map_err(internal)?;
     let alerts = store.alerts(0, Some(&ip), 200).map_err(internal)?;
     let history = store.ip_history(&ip, now - 7 * 86_400).map_err(internal)?;
-    let ssh_events = store.ssh_events(0, Some(&ip), 200).map_err(internal)?;
+    let (ssh_events, ssh_logins) = source_ssh(&store, &ip).map_err(internal)?;
     let props: Vec<ProposalView> = store
         .proposals(false, Some(&ip), 50)
         .map_err(internal)?
@@ -366,6 +402,7 @@ async fn source_detail(
     obj.insert("alerts".into(), json!(alerts));
     obj.insert("history".into(), json!(history));
     obj.insert("ssh_events".into(), json!(ssh_events));
+    obj.insert("ssh_logins".into(), json!(ssh_logins));
     obj.insert("ban".into(), json!(ban));
     obj.insert("proposals".into(), json!(props));
     let mut flows = active_flows;
@@ -398,8 +435,14 @@ async fn alerts(State(app): AppState, Query(q): Query<ListQuery>) -> ApiResult<V
 }
 
 async fn bans(State(app): AppState) -> ApiResult<Vec<BanView>> {
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
     let e = app.engine.lock().unwrap();
-    let mut list: Vec<BanView> = e.bans.values().cloned().map(|b| ban_view(&e, b)).collect();
+    let mut list: Vec<BanView> = e
+        .bans
+        .values()
+        .cloned()
+        .map(|b| ban_view(&e, b, drops))
+        .collect();
     list.sort_by_key(|b| std::cmp::Reverse(b.row.created));
     Ok(Json(list))
 }
@@ -1049,6 +1092,7 @@ async fn destinations(
         "bytes" => rows.sort_by_key(|d| std::cmp::Reverse(d.bytes_in + d.bytes_out)),
         "last" => rows.sort_by_key(|d| std::cmp::Reverse(d.last_seen)),
         "first" => rows.sort_by_key(|d| std::cmp::Reverse(d.first_seen)),
+        "failed" => rows.sort_by_key(|d| std::cmp::Reverse(d.failed)),
         _ => rows.sort_by_key(|d| std::cmp::Reverse(d.flows)),
     }
     let matched = rows.len();
@@ -1152,6 +1196,648 @@ async fn dns(State(app): AppState, Query(q): Query<DnsQuery>) -> ApiResult<Value
     Ok(Json(json!({ "queries": recent, "top": top })))
 }
 
+// ---------------------------------------------------------------------------
+// Attack timeline: one lane per flagged source, so the UI draws every lane from
+// one request instead of one /api/sources/{ip} per source.
+
+#[derive(Deserialize)]
+struct TimelineQuery {
+    /// 24h or 7d (default).
+    window: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct TimelineHour {
+    hour: i64,
+    in_packets: i64,
+    syn: i64,
+    blocked: i64,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+struct TimelineEvent {
+    ts: i64,
+    /// finding, proposal, ban or login
+    kind: &'static str,
+    label: String,
+    /// The finding's kind (ssh_bruteforce, port_scan, ...), for findings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finding: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TimelineRow {
+    ip: String,
+    geo: GeoInfo,
+    score: u32,
+    findings: Vec<Finding>,
+    allowlisted: bool,
+    /// banned, ban proposed or watching
+    status: &'static str,
+    ssh_accepted: u64,
+    first_seen: i64,
+    last_seen: i64,
+    hours: Vec<TimelineHour>,
+    events: Vec<TimelineEvent>,
+    ban: Option<BanView>,
+}
+
+/// What happened to a source inside the window, oldest first: findings raised,
+/// proposals made, the ban, and accepted logins (the one event that means it got in).
+fn timeline_events(
+    alerts: &[AlertRow],
+    proposals: &[ProposalRow],
+    ssh: &[SshEventRow],
+    ban: Option<&BanRow>,
+    since: i64,
+) -> Vec<TimelineEvent> {
+    let mut ev: Vec<TimelineEvent> = Vec::new();
+    for a in alerts.iter().filter(|a| a.first_ts >= since) {
+        ev.push(TimelineEvent {
+            ts: a.first_ts,
+            kind: "finding",
+            label: a.summary.clone(),
+            finding: Some(a.kind.clone()),
+        });
+    }
+    for p in proposals.iter().filter(|p| p.created >= since) {
+        ev.push(TimelineEvent {
+            ts: p.created,
+            kind: "proposal",
+            label: format!("{} proposed (#{}, {})", p.action, p.id, p.status),
+            finding: None,
+        });
+    }
+    if let Some(b) = ban.filter(|b| b.created >= since) {
+        ev.push(TimelineEvent {
+            ts: b.created,
+            kind: "ban",
+            label: format!("banned ({}): {}", b.source, b.reason),
+            finding: None,
+        });
+    }
+    for e in ssh.iter().filter(|e| e.kind == "accepted" && e.ts >= since) {
+        ev.push(TimelineEvent {
+            ts: e.ts,
+            kind: "login",
+            label: match &e.user {
+                Some(u) => format!("SSH login accepted as {u}"),
+                None => "SSH login accepted".into(),
+            },
+            finding: None,
+        });
+    }
+    ev.sort_by_key(|e| e.ts);
+    ev
+}
+
+fn lane_status(banned: bool, ban_pending: bool) -> &'static str {
+    if banned {
+        "banned"
+    } else if ban_pending {
+        "ban proposed"
+    } else {
+        "watching"
+    }
+}
+
+/// The lanes for sources active since `since`, highest score first, with what the
+/// engine knows, and how many there were before `limit`. The store fills in history
+/// and events after the engine lock is released.
+fn pick_lanes(e: &Engine, limit: usize, drops: bool, since: i64) -> (Vec<TimelineRow>, usize) {
+    let mut picked: Vec<&IpState> = e
+        .states
+        .values()
+        .filter(|s| s.score > 0 && !s.allowlisted && s.last_seen.max(s.ssh.last_event) >= since)
+        .collect();
+    let total = picked.len();
+    picked.sort_by(|a, b| b.score.cmp(&a.score).then(b.last_seen.cmp(&a.last_seen)));
+    picked.truncate(limit);
+    let rows = picked
+        .into_iter()
+        .map(|st| TimelineRow {
+            ip: st.ip.to_string(),
+            geo: st.geo.clone(),
+            score: st.score,
+            findings: st.findings.clone(),
+            allowlisted: st.allowlisted,
+            status: lane_status(st.banned, false),
+            ssh_accepted: st.ssh.accepted,
+            first_seen: st.first_seen,
+            last_seen: st.last_seen.max(st.ssh.last_event),
+            hours: Vec::new(),
+            events: Vec::new(),
+            ban: e.ban_for(st.ip).cloned().map(|b| ban_view(e, b, drops)),
+        })
+        .collect();
+    (rows, total)
+}
+
+fn fill_lanes(
+    store: &crate::store::Store,
+    rows: &mut [TimelineRow],
+    since: i64,
+) -> anyhow::Result<()> {
+    for r in rows {
+        let alerts = store.alerts(since, Some(&r.ip), 50)?;
+        let proposals = store.proposals(false, Some(&r.ip), 20)?;
+        let ssh = store.ssh_logins(since, Some(&r.ip), 50)?;
+        r.events = timeline_events(
+            &alerts,
+            &proposals,
+            &ssh,
+            r.ban.as_ref().map(|b| &b.row),
+            since,
+        );
+        let ban_pending = proposals
+            .iter()
+            .any(|p| p.status == "pending" && p.action == "ban");
+        r.status = lane_status(r.ban.is_some() || r.status == "banned", ban_pending);
+        r.hours = store
+            .ip_history(&r.ip, since - since % 3_600)?
+            .into_iter()
+            .map(|h| TimelineHour {
+                hour: h.hour,
+                in_packets: h.in_packets,
+                syn: h.syn,
+                blocked: h.blocked,
+            })
+            .collect();
+    }
+    Ok(())
+}
+
+async fn timeline(State(app): AppState, Query(q): Query<TimelineQuery>) -> ApiResult<Value> {
+    let now = now_unix();
+    let window = match q.window.as_deref() {
+        Some("24h") => 86_400,
+        _ => 7 * 86_400,
+    };
+    let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    let drops = bans_drop(app.cfg.drop_banned, app.kernel.lock().unwrap().attach_mode);
+    let (mut rows, total) = pick_lanes(&app.engine.lock().unwrap(), limit, drops, now - window);
+    fill_lanes(&app.store.lock().unwrap(), &mut rows, now - window).map_err(internal)?;
+    Ok(Json(
+        json!({ "since": now - window, "now": now, "total": total, "rows": rows }),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Host map: who connects in to which service, and which program connects out to
+// whom, folded to a few nodes per column so it stays readable on a busy host.
+
+/// Nodes per column; the rest fold into one "N more" node.
+const GRAPH_COLUMN: usize = 9;
+/// Hostile sources shown one by one; the rest share a node.
+const GRAPH_HOSTILE: usize = 4;
+/// Stored flows read per request.
+const GRAPH_FLOWS: u32 = 20_000;
+
+/// Narrows /api/flows to what a node stands for, so the UI lists its connections.
+#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+struct NodeFilter {
+    dir: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    q: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct GraphNode {
+    key: String,
+    label: String,
+    sub: String,
+    flows: u64,
+    bytes: u64,
+    failed: u64,
+    hostile: bool,
+    /// For a folded node, how many nodes it holds.
+    folded: usize,
+    filter: Option<NodeFilter>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct GraphEdge {
+    a: String,
+    b: String,
+    flows: u64,
+    bytes: u64,
+    failed: u64,
+    hostile: bool,
+    /// refused, timed out or unanswered, when any of its flows failed.
+    reason: Option<&'static str>,
+}
+
+#[derive(Serialize, Debug, Default)]
+struct GraphHalf {
+    left: Vec<GraphNode>,
+    right: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
+/// Why a flow never connected, or None if it did.
+fn flow_failure(f: &FlowRow) -> Option<&'static str> {
+    match f.state.as_str() {
+        "unanswered" => Some("unanswered"),
+        // Same 3 s split as the connect_failed event. connect_ms is only set when the
+        // handshake completes, so the time from the SYN to the last packet stands in:
+        // a refusal ends at once, a timeout keeps retransmitting the SYN.
+        "failed" if f.last_seen - f.first_seen >= 3 => Some("timed out"),
+        "failed" => Some("refused"),
+        _ => None,
+    }
+}
+
+fn owner_of(f: &FlowRow) -> Option<&str> {
+    f.container
+        .as_deref()
+        .or(f.unit.as_deref())
+        .or(f.process.as_deref())
+}
+
+/// Tailscale names lose the tailnet suffix: "nas.tail1234.ts.net" is "nas".
+fn short_name(n: &str) -> String {
+    match n.find(".tail") {
+        Some(i) if n.ends_with(".ts.net") => n[..i].to_string(),
+        _ => n.to_string(),
+    }
+}
+
+type Side = (String, String, String, Option<NodeFilter>);
+
+fn inbound_remote(f: &FlowRow, hostile: &HashSet<String>, shown: &HashSet<String>) -> Side {
+    let dir = "in";
+    if let Some(local) = f
+        .remote_container
+        .as_deref()
+        .or(f.remote_process.as_deref())
+    {
+        return (
+            format!("local:{local}"),
+            local.to_string(),
+            "on this host".into(),
+            Some(NodeFilter {
+                dir,
+                ip: Some(f.remote.clone()),
+                ..Default::default()
+            }),
+        );
+    }
+    if hostile.contains(&f.remote) {
+        if shown.contains(&f.remote) {
+            let sub = f.as_org.clone().unwrap_or_else(|| "unknown network".into());
+            return (
+                format!("ip:{}", f.remote),
+                f.remote.clone(),
+                sub,
+                Some(NodeFilter {
+                    dir,
+                    ip: Some(f.remote.clone()),
+                    ..Default::default()
+                }),
+            );
+        }
+        return (
+            "hostile:other".into(),
+            "other flagged sources".into(),
+            "score above 0".into(),
+            None,
+        );
+    }
+    if let Some(name) = &f.remote_name {
+        return (
+            format!("name:{name}"),
+            short_name(name),
+            f.remote.clone(),
+            Some(NodeFilter {
+                dir,
+                ip: Some(f.remote.clone()),
+                ..Default::default()
+            }),
+        );
+    }
+    if let Some(org) = &f.as_org {
+        return (
+            format!("org:{org}"),
+            org.clone(),
+            f.country.clone().unwrap_or_default(),
+            Some(NodeFilter {
+                dir,
+                q: Some(org.clone()),
+                ..Default::default()
+            }),
+        );
+    }
+    (
+        format!("ip:{}", f.remote),
+        f.remote.clone(),
+        "no network info".into(),
+        Some(NodeFilter {
+            dir,
+            ip: Some(f.remote.clone()),
+            ..Default::default()
+        }),
+    )
+}
+
+fn inbound_service(f: &FlowRow) -> Side {
+    match owner_of(f) {
+        Some(o) => (
+            format!("svc:{}/{}", f.proto, f.lport),
+            format!(
+                "{} · {o}",
+                f.service.clone().unwrap_or_else(|| f.lport.to_string())
+            ),
+            format!("{}/{}", f.proto, f.lport),
+            Some(NodeFilter {
+                dir: "in",
+                port: Some(f.lport),
+                ..Default::default()
+            }),
+        ),
+        None => (
+            "svc:closed".into(),
+            "closed ports".into(),
+            "nothing listening".into(),
+            None,
+        ),
+    }
+}
+
+fn outbound_program(f: &FlowRow) -> Side {
+    let (o, kind) = if let Some(c) = &f.container {
+        (c.as_str(), "container")
+    } else if let Some(u) = &f.unit {
+        (u.as_str(), "systemd unit")
+    } else if let Some(p) = &f.process {
+        (p.as_str(), "process")
+    } else {
+        return (
+            "prog:unknown".into(),
+            "unknown process".into(),
+            "ended before netwatch saw it".into(),
+            None,
+        );
+    };
+    (
+        format!("prog:{o}"),
+        o.to_string(),
+        kind.into(),
+        Some(NodeFilter {
+            dir: "out",
+            process: Some(o.to_string()),
+            ..Default::default()
+        }),
+    )
+}
+
+fn outbound_dest(f: &FlowRow) -> Side {
+    let sub = format!(
+        "{}/{}{}",
+        f.proto,
+        f.rport,
+        f.as_org
+            .as_deref()
+            .map(|o| format!(" · {o}"))
+            .unwrap_or_default()
+    );
+    match &f.remote_name {
+        Some(n) => (
+            format!("dest:{n}"),
+            short_name(n),
+            sub,
+            Some(NodeFilter {
+                dir: "out",
+                q: Some(n.clone()),
+                ..Default::default()
+            }),
+        ),
+        None => (
+            format!("dest:{}", f.remote),
+            f.remote.clone(),
+            sub,
+            Some(NodeFilter {
+                dir: "out",
+                ip: Some(f.remote.clone()),
+                ..Default::default()
+            }),
+        ),
+    }
+}
+
+fn half_graph(
+    rows: &[&FlowRow],
+    side_a: &dyn Fn(&FlowRow) -> Side,
+    side_b: &dyn Fn(&FlowRow) -> Side,
+    hostile: &HashSet<String>,
+    more: &str,
+) -> GraphHalf {
+    let mut na: BTreeMap<String, GraphNode> = BTreeMap::new();
+    let mut nb: BTreeMap<String, GraphNode> = BTreeMap::new();
+    let mut ed: BTreeMap<(String, String), GraphEdge> = BTreeMap::new();
+    let bump = |m: &mut BTreeMap<String, GraphNode>, s: Side, f: &FlowRow, bad: bool, hot: bool| {
+        let (key, label, sub, filter) = s;
+        let n = m.entry(key.clone()).or_insert(GraphNode {
+            key,
+            label,
+            sub,
+            flows: 0,
+            bytes: 0,
+            failed: 0,
+            hostile: false,
+            folded: 0,
+            filter,
+        });
+        n.flows += 1;
+        n.bytes += f.bytes_in + f.bytes_out;
+        n.failed += u64::from(bad);
+        n.hostile |= hot;
+    };
+    for f in rows {
+        let why = flow_failure(f);
+        let hot = hostile.contains(&f.remote);
+        let a = side_a(f);
+        let b = side_b(f);
+        let k = (a.0.clone(), b.0.clone());
+        bump(&mut na, a, f, why.is_some(), hot);
+        bump(&mut nb, b, f, why.is_some(), hot);
+        let e = ed.entry(k.clone()).or_insert(GraphEdge {
+            a: k.0,
+            b: k.1,
+            flows: 0,
+            bytes: 0,
+            failed: 0,
+            hostile: false,
+            reason: None,
+        });
+        e.flows += 1;
+        e.bytes += f.bytes_in + f.bytes_out;
+        if why.is_some() {
+            e.failed += 1;
+            e.reason = e.reason.or(why);
+        }
+        e.hostile |= hot;
+    }
+    // Failing first, then the busiest; whatever doesn't fit becomes one node.
+    let fold =
+        |m: BTreeMap<String, GraphNode>, key: &str| -> (Vec<GraphNode>, HashMap<String, String>) {
+            let mut v: Vec<GraphNode> = m.into_values().collect();
+            v.sort_by(|x, y| {
+                y.failed
+                    .cmp(&x.failed)
+                    .then(y.bytes.cmp(&x.bytes))
+                    .then(x.key.cmp(&y.key))
+            });
+            let mut map: HashMap<String, String> =
+                v.iter().map(|n| (n.key.clone(), n.key.clone())).collect();
+            if v.len() > GRAPH_COLUMN {
+                let rest = v.split_off(GRAPH_COLUMN - 1);
+                let mut o = GraphNode {
+                    key: key.to_string(),
+                    label: format!("{} more", rest.len()),
+                    sub: "folded".into(),
+                    flows: 0,
+                    bytes: 0,
+                    failed: 0,
+                    hostile: false,
+                    folded: rest.len(),
+                    filter: None,
+                };
+                for n in rest {
+                    o.flows += n.flows;
+                    o.bytes += n.bytes;
+                    o.failed += n.failed;
+                    o.hostile |= n.hostile;
+                    map.insert(n.key, key.to_string());
+                }
+                v.push(o);
+            }
+            (v, map)
+        };
+    let (left, ma) = fold(na, &format!("more:{more}:a"));
+    let (mut right, mb) = fold(nb, &format!("more:{more}:b"));
+    let mut edges: BTreeMap<(String, String), GraphEdge> = BTreeMap::new();
+    for e in ed.into_values() {
+        let k = (ma[&e.a].clone(), mb[&e.b].clone());
+        let x = edges.entry(k.clone()).or_insert(GraphEdge {
+            a: k.0,
+            b: k.1,
+            flows: 0,
+            bytes: 0,
+            failed: 0,
+            hostile: false,
+            reason: None,
+        });
+        x.flows += e.flows;
+        x.bytes += e.bytes;
+        x.failed += e.failed;
+        x.hostile |= e.hostile;
+        x.reason = x.reason.or(e.reason);
+    }
+    let edges: Vec<GraphEdge> = edges.into_values().collect();
+    // Right column follows the mean position of what feeds it (fewer crossings),
+    // failing nodes first, the folded node last.
+    let pos: HashMap<&str, usize> = left
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.key.as_str(), i))
+        .collect();
+    let bary = |k: &str| {
+        let (mut sum, mut w) = (0.0, 0.0);
+        for e in edges.iter().filter(|e| e.b == k) {
+            let wt = (e.bytes as f64).ln_1p().max(1.0);
+            sum += pos.get(e.a.as_str()).copied().unwrap_or(0) as f64 * wt;
+            w += wt;
+        }
+        if w > 0.0 { sum / w } else { 0.0 }
+    };
+    right.sort_by(|x, y| {
+        (x.folded > 0)
+            .cmp(&(y.folded > 0))
+            .then(y.failed.cmp(&x.failed))
+            .then(bary(&x.key).total_cmp(&bary(&y.key)))
+    });
+    GraphHalf { left, right, edges }
+}
+
+fn build_graph(rows: &[FlowRow], hostile: &HashSet<String>) -> (GraphHalf, GraphHalf) {
+    let inbound: Vec<&FlowRow> = rows.iter().filter(|f| f.dir == "in").collect();
+    let outbound: Vec<&FlowRow> = rows.iter().filter(|f| f.dir == "out").collect();
+    // The busiest hostile sources get a node each.
+    let mut by_bytes: HashMap<&str, u64> = HashMap::new();
+    for f in inbound.iter().filter(|f| hostile.contains(&f.remote)) {
+        *by_bytes.entry(f.remote.as_str()).or_default() += f.bytes_in + f.bytes_out;
+    }
+    let mut top: Vec<(&str, u64)> = by_bytes.into_iter().collect();
+    top.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let shown: HashSet<String> = top
+        .iter()
+        .take(GRAPH_HOSTILE)
+        .map(|(ip, _)| ip.to_string())
+        .collect();
+    let remote = |f: &FlowRow| inbound_remote(f, hostile, &shown);
+    (
+        half_graph(&inbound, &remote, &inbound_service, hostile, "in"),
+        half_graph(&outbound, &outbound_program, &outbound_dest, hostile, "out"),
+    )
+}
+
+async fn flows_graph(State(app): AppState, Query(q): Query<ListQuery>) -> ApiResult<Value> {
+    let now = now_unix();
+    let window = match q.window.as_deref() {
+        Some("5m") => 300,
+        Some("24h") => 86_400,
+        _ => 3_600,
+    };
+    let (mut rows, hostile) = {
+        let e = app.engine.lock().unwrap();
+        let rows: Vec<FlowRow> = e
+            .flows
+            .active
+            .values()
+            .map(|f| e.flow_row(f, now, true))
+            .collect();
+        let hostile: HashSet<String> = e
+            .states
+            .values()
+            .filter(|s| s.score > 0 && !s.allowlisted)
+            .map(|s| s.ip.to_string())
+            .collect();
+        (rows, hostile)
+    };
+    let active = rows.len();
+    let past = app
+        .store
+        .lock()
+        .unwrap()
+        .flows(
+            &FlowFilter {
+                since: now - window,
+                ..Default::default()
+            },
+            GRAPH_FLOWS,
+        )
+        .map_err(internal)?;
+    let truncated = past.len() as u32 >= GRAPH_FLOWS;
+    rows.extend(past);
+    let (inbound, outbound) = build_graph(&rows, &hostile);
+    Ok(Json(json!({
+        "since": now - window,
+        "now": now,
+        "flows": rows.len(),
+        "active": active,
+        "truncated": truncated,
+        "inbound": inbound,
+        "outbound": outbound,
+    })))
+}
+
 async fn conn_events(
     State(app): AppState,
     Query(q): Query<ListQuery>,
@@ -1170,6 +1856,18 @@ async fn conn_events(
 mod tests {
     use super::*;
 
+    fn test_engine() -> Engine {
+        let geo = crate::geo::Geo::open(
+            std::path::Path::new("/nonexistent/city.mmdb"),
+            std::path::Path::new("/nonexistent/asn.mmdb"),
+        );
+        Engine::new(
+            Arc::new(crate::config::Config::default()),
+            geo,
+            (32768, 60999),
+        )
+    }
+
     /// temps reads `/api/bans` (temps-shield's `netwatch` module): it needs `target` and `expires`.
     #[test]
     fn bans_carry_what_temps_reads() {
@@ -1180,7 +1878,12 @@ mod tests {
             reason: "scan".into(),
             source: "auto".into(),
         };
-        let v = serde_json::to_value(BanView { row, dropped: 3 }).unwrap();
+        let v = serde_json::to_value(BanView {
+            row,
+            matched: 3,
+            dropped: 3,
+        })
+        .unwrap();
         assert_eq!(v["target"], "203.0.113.0/24");
         assert_eq!(v["expires"], 86_401);
         let row = BanRow {
@@ -1190,6 +1893,385 @@ mod tests {
             reason: String::new(),
             source: "manual".into(),
         };
-        assert!(serde_json::to_value(BanView { row, dropped: 0 }).unwrap()["expires"].is_null());
+        assert!(
+            serde_json::to_value(BanView {
+                row,
+                matched: 0,
+                dropped: 0,
+            })
+            .unwrap()["expires"]
+                .is_null()
+        );
+    }
+
+    /// A dry run (`drop_banned = false`), or macOS before pf took the anchor, matches
+    /// banned packets without dropping them; the API must not call them dropped.
+    #[test]
+    fn an_asn_search_matches_that_network_only() {
+        let mut e = test_engine();
+        for (ip, asn) in [
+            ("203.0.113.1", 174),
+            ("203.0.113.2", 1740),
+            ("203.0.113.3", 17488),
+        ] {
+            let st = e.state(ip.parse().unwrap(), 0);
+            st.geo.asn = Some(asn);
+            st.location = format!("US AS{asn} Example");
+        }
+        let hits = |n: &str| {
+            let mut v: Vec<_> = e
+                .states
+                .values()
+                .filter(|s| source_matches(s, n))
+                .map(|s| s.ip.to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(hits("as174"), ["203.0.113.1"]);
+        assert_eq!(hits("203.0.113.2"), ["203.0.113.2"]);
+        assert_eq!(hits("example").len(), 3);
+    }
+
+    #[test]
+    fn bans_drop_only_when_the_sensor_drops() {
+        assert!(bans_drop(true, "driver"));
+        assert!(bans_drop(true, "skb"));
+        assert!(bans_drop(true, "capture+pf"));
+        assert!(!bans_drop(true, "capture"));
+        assert!(!bans_drop(true, "capture+pf-unreferenced"));
+        assert!(!bans_drop(false, "driver"));
+        assert!(!bans_drop(false, "capture+pf"));
+    }
+
+    #[test]
+    fn ban_view_counts_matched_and_dropped_apart() {
+        let mut e = test_engine();
+        for (ip, blocked) in [
+            ("203.0.113.7", 40),
+            ("203.0.113.9", 2),
+            ("198.51.100.1", 500),
+        ] {
+            e.state(ip.parse().unwrap(), 1).total.blocked = blocked;
+        }
+        let row = |target: &str| BanRow {
+            target: target.into(),
+            created: 1,
+            expires: None,
+            reason: String::new(),
+            source: "manual".into(),
+        };
+        let v = ban_view(&e, row("203.0.113.0/24"), true);
+        assert_eq!((v.matched, v.dropped), (42, 42));
+        let v = ban_view(&e, row("203.0.113.0/24"), false);
+        assert_eq!((v.matched, v.dropped), (42, 0));
+        let v = ban_view(&e, row("198.51.100.1"), false);
+        assert_eq!((v.matched, v.dropped), (500, 0));
+    }
+
+    #[test]
+    fn timeline_events_keep_the_window_and_only_accepted_logins() {
+        let alert = |ts, kind: &str| AlertRow {
+            id: ts,
+            ip: "203.0.113.7".into(),
+            kind: kind.into(),
+            score: 80,
+            summary: format!("{kind} summary"),
+            location: String::new(),
+            first_ts: ts,
+            last_ts: ts + 60,
+            count: 1,
+        };
+        let ssh = |ts, kind: &str| SshEventRow {
+            ts,
+            kind: kind.into(),
+            user: Some("root".into()),
+            ip: "203.0.113.7".into(),
+            method: Some("password".into()),
+            location: String::new(),
+            port: None,
+        };
+        let proposal = ProposalRow {
+            id: 42,
+            created: 300,
+            target: "203.0.113.7".into(),
+            action: "ban".into(),
+            ttl_secs: Some(86_400),
+            reason: String::new(),
+            source: "rules".into(),
+            confidence: 0.9,
+            status: "pending".into(),
+            decided_at: None,
+        };
+        let ban = BanRow {
+            target: "203.0.113.7".into(),
+            created: 400,
+            expires: None,
+            reason: "ssh_bruteforce".into(),
+            source: "manual".into(),
+        };
+        let ev = timeline_events(
+            &[alert(50, "port_scan"), alert(200, "ssh_bruteforce")],
+            &[proposal],
+            &[ssh(250, "failed"), ssh(500, "accepted")],
+            Some(&ban),
+            100,
+        );
+        let kinds: Vec<_> = ev.iter().map(|e| (e.ts, e.kind)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (200, "finding"),
+                (300, "proposal"),
+                (400, "ban"),
+                (500, "login")
+            ]
+        );
+        assert_eq!(ev[0].finding.as_deref(), Some("ssh_bruteforce"));
+        assert_eq!(ev[1].label, "ban proposed (#42, pending)");
+        assert_eq!(ev[3].label, "SSH login accepted as root");
+    }
+
+    #[test]
+    fn timeline_lists_flagged_sources_by_score_with_their_history() {
+        let path =
+            std::env::temp_dir().join(format!("netwatch-timeline-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut store = crate::store::Store::open(&path).unwrap();
+        let mut e = test_engine();
+        let now = 10 * 86_400;
+        for (ip, score) in [("203.0.113.7", 90), ("198.51.100.4", 40), ("192.0.2.1", 0)] {
+            e.state(ip.parse().unwrap(), now).score = score;
+        }
+        e.state("198.51.100.9".parse().unwrap(), now).score = 70;
+        e.state("198.51.100.9".parse().unwrap(), now).allowlisted = true;
+        // Flagged, but quiet for longer than the window.
+        e.state("192.0.2.50".parse().unwrap(), now - 3 * 86_400)
+            .score = 95;
+        store
+            .upsert_alert(
+                "203.0.113.7",
+                "ssh_bruteforce",
+                90,
+                "204 failed logins",
+                "",
+                now - 3_600,
+            )
+            .unwrap();
+        store
+            .add_proposal(
+                &crate::store::NewProposal {
+                    target: "198.51.100.4",
+                    action: "ban",
+                    ttl_secs: Some(86_400),
+                    reason: "scan",
+                    source: "rules",
+                    confidence: 0.8,
+                },
+                now - 600,
+            )
+            .unwrap();
+        store
+            .record_hourly(
+                now - now % 3_600 - 3_600,
+                &[crate::store::HourDelta {
+                    ip: "203.0.113.7",
+                    country: "",
+                    location: "",
+                    in_packets: 1_200,
+                    in_bytes: 90_000,
+                    syn: 300,
+                    blocked: 0,
+                    score: 90,
+                }],
+            )
+            .unwrap();
+
+        // One accepted login, then more failures than any page of SSH events holds.
+        let ssh = |ts: i64, kind: &str, user: &str| crate::store::SshEventRow {
+            ts,
+            kind: kind.into(),
+            user: Some(user.into()),
+            ip: "203.0.113.7".into(),
+            method: Some("password".into()),
+            location: String::new(),
+            port: None,
+        };
+        store
+            .add_ssh_event(&ssh(now - 3_000, "accepted", "deploy"))
+            .unwrap();
+        for i in 0..600 {
+            store
+                .add_ssh_event(&ssh(now - 2_900 + i, "failed", "root"))
+                .unwrap();
+        }
+
+        // The source page gets the login too, though 200 newer failures bury it.
+        let (events, logins) = source_ssh(&store, "203.0.113.7").unwrap();
+        assert_eq!(events.len(), 200);
+        assert!(events.iter().all(|e| e.kind == "failed"));
+        assert_eq!(logins.len(), 1);
+        assert_eq!(
+            (logins[0].ts, logins[0].user.as_deref()),
+            (now - 3_000, Some("deploy"))
+        );
+
+        let (mut rows, total) = pick_lanes(&e, 20, true, now - 86_400);
+        fill_lanes(&store, &mut rows, now - 86_400).unwrap();
+        let ips: Vec<_> = rows.iter().map(|r| r.ip.as_str()).collect();
+        // Score 0 and allowlisted sources are not threats; a quiet one is out of the window.
+        assert_eq!(ips, ["203.0.113.7", "198.51.100.4"]);
+        assert_eq!(total, 2);
+        assert_eq!(rows[0].hours.len(), 1);
+        assert_eq!(rows[0].hours[0].in_packets, 1_200);
+        assert_eq!(rows[0].events[0].kind, "finding");
+        assert!(
+            rows[0]
+                .events
+                .iter()
+                .any(|e| e.kind == "login" && e.ts == now - 3_000)
+        );
+        assert_eq!(rows[0].status, "watching");
+        assert_eq!(rows[1].status, "ban proposed");
+        let (one, total) = pick_lanes(&e, 1, true, now - 86_400);
+        assert_eq!((one.len(), total), (1, 2));
+        assert_eq!(pick_lanes(&e, 20, true, now - 7 * 86_400).1, 3);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    fn flow(dir: &str, remote: &str, f: impl FnOnce(&mut FlowRow)) -> FlowRow {
+        let mut r = FlowRow {
+            proto: "tcp".into(),
+            local: "203.0.113.10".into(),
+            remote: remote.into(),
+            dir: dir.into(),
+            state: "closed".into(),
+            bytes_in: 1_000,
+            bytes_out: 500,
+            ..Default::default()
+        };
+        f(&mut r);
+        r
+    }
+
+    #[test]
+    fn graph_groups_inbound_by_who_and_service() {
+        let hostile: HashSet<String> = (1..=6).map(|i| format!("198.51.100.{i}")).collect();
+        let mut rows = Vec::new();
+        for i in 1..=6u64 {
+            rows.push(flow("in", &format!("198.51.100.{i}"), |f| {
+                f.lport = 22;
+                f.service = Some("ssh".into());
+                f.process = Some("sshd".into());
+                f.bytes_in = i * 1_000;
+            }));
+        }
+        for ip in ["192.0.2.1", "192.0.2.2"] {
+            rows.push(flow("in", ip, |f| {
+                f.lport = 443;
+                f.service = Some("https".into());
+                f.container = Some("caddy".into());
+                f.as_org = Some("EXAMPLE-CDN".into());
+            }));
+        }
+        rows.push(flow("in", "198.51.100.1", |f| {
+            f.lport = 6379;
+            f.state = "unanswered".into();
+        }));
+        let (inbound, outbound) = build_graph(&rows, &hostile);
+        assert!(outbound.left.is_empty());
+        let keys: Vec<_> = inbound.left.iter().map(|n| n.key.as_str()).collect();
+        // The four busiest hostile sources one by one, the rest together, the CDN by network.
+        for k in [
+            "ip:198.51.100.6",
+            "ip:198.51.100.5",
+            "ip:198.51.100.4",
+            "ip:198.51.100.3",
+            "hostile:other",
+            "org:EXAMPLE-CDN",
+        ] {
+            assert!(keys.contains(&k), "{k} missing from {keys:?}");
+        }
+        let cdn = inbound
+            .left
+            .iter()
+            .find(|n| n.key == "org:EXAMPLE-CDN")
+            .unwrap();
+        assert_eq!(cdn.flows, 2);
+        assert_eq!(
+            cdn.filter.as_ref().unwrap().q.as_deref(),
+            Some("EXAMPLE-CDN")
+        );
+        let closed = inbound
+            .right
+            .iter()
+            .find(|n| n.key == "svc:closed")
+            .unwrap();
+        assert_eq!((closed.flows, closed.failed), (1, 1));
+        let ssh = inbound
+            .right
+            .iter()
+            .find(|n| n.key == "svc:tcp/22")
+            .unwrap();
+        assert_eq!(ssh.label, "ssh · sshd");
+        assert!(ssh.hostile);
+        assert_eq!(ssh.filter.as_ref().unwrap().port, Some(22));
+        let e = inbound.edges.iter().find(|e| e.b == "svc:closed").unwrap();
+        assert_eq!(e.reason, Some("unanswered"));
+    }
+
+    #[test]
+    fn graph_shows_failing_programs_first_and_folds_the_rest() {
+        let hostile = HashSet::new();
+        let mut rows = Vec::new();
+        // Seconds from the SYN to the last packet: two refusals, one timeout. A failed
+        // flow never has connect_ms, as the sensor only sets it on a handshake.
+        for secs in [0, 0, 21] {
+            rows.push(flow("out", "192.0.2.50", |f| {
+                f.rport = 5432;
+                f.unit = Some("pg-backup".into());
+                f.remote_name = Some("db.backup.example.com".into());
+                f.state = "failed".into();
+                f.first_seen = 1_000;
+                f.last_seen = 1_000 + secs;
+                f.bytes_in = 0;
+                f.bytes_out = 0;
+            }));
+        }
+        for i in 0..12u64 {
+            rows.push(flow("out", &format!("198.51.100.{}", 100 + i), |f| {
+                f.rport = 443;
+                f.process = Some("curl".into());
+                f.bytes_in = 10_000 * (i + 1);
+            }));
+        }
+        rows.push(flow("out", "192.0.2.9", |f| {
+            f.rport = 443;
+            f.container = Some("app".into());
+            f.remote_name = Some("nas.tail1234.ts.net".into());
+        }));
+        let (_, out) = build_graph(&rows, &hostile);
+        assert_eq!(out.left[0].key, "prog:pg-backup");
+        assert_eq!(out.left[0].failed, 3);
+        assert_eq!(out.left[0].sub, "systemd unit");
+        assert_eq!(out.right.len(), GRAPH_COLUMN);
+        assert_eq!(out.right[0].key, "dest:db.backup.example.com");
+        let more = out.right.last().unwrap();
+        assert_eq!(more.label, format!("{} more", 14 - (GRAPH_COLUMN - 1)));
+        assert_eq!(more.folded, 14 - (GRAPH_COLUMN - 1));
+        // Folding keeps every flow.
+        assert_eq!(out.right.iter().map(|n| n.flows).sum::<u64>(), 16);
+        assert_eq!(out.edges.iter().map(|e| e.flows).sum::<u64>(), 16);
+        let bad = out.edges.iter().find(|e| e.a == "prog:pg-backup").unwrap();
+        assert_eq!((bad.failed, bad.reason), (3, Some("refused")));
+        let nas = out
+            .right
+            .iter()
+            .find(|n| n.key == "dest:nas.tail1234.ts.net");
+        assert!(nas.is_none_or(|n| n.label == "nas"));
+        assert_eq!(flow_failure(&rows[0]), Some("refused"));
+        assert_eq!(flow_failure(&rows[2]), Some("timed out"));
+        assert_eq!(short_name("nas.tail1234.ts.net"), "nas");
+        assert_eq!(short_name("github.com"), "github.com");
     }
 }

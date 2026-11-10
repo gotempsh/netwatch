@@ -17,20 +17,20 @@ Then browse [http://127.0.0.1:9180](http://127.0.0.1:9180). On a Mac running net
 
 No server yet? The [live demo](/demo/) is the same UI on demo data, so you can follow the steps below in your browser.
 
-![The Overview page: host status, live rates, flagged sources, bans and proposals](/screenshots/overview.png "Overview: the host, live packet and SYN rates, flagged sources, active bans and pending proposals.")
+![The Status page: a verdict, what needs you with the command for each item, and who is knocking](/screenshots/status.png "Status: what needs you, most urgent first, then who is knocking, who this host talks to and what the internet can reach.")
 
-The strip at the top shows the host, the interface XDP is attached to and how (`driver`, or `skb` for generic mode), the mode, whether bans drop packets, the threat feeds loaded and, if configured, the model and its token budget.
+## 2. Read what needs you
 
-## 2. Read the insights
-
-Further down the Overview, **Insights** is what netwatch thinks deserves attention, most severe first. Each one says what it saw and gives the command that fixes or investigates it, for example:
+**Status** opens with a verdict: all quiet, or what needs you now and what to check. Each item says what netwatch saw and gives the command that fixes or investigates it, for example:
 
 - "sshd accepts passwords", with the `sshd_config` change;
 - "SSH brute force from CHINANET /16 is ongoing", with the pending proposal;
 - "port 5432 is reachable and being probed";
-- "this host talked to a listed IP".
+- "pg-backup can't reach db.backup.example.com:5432", when a program's connections keep failing.
 
-The same list is in the terminal:
+A line at the bottom of the page says where the sensor is attached, how many interfaces record flows and which threat feeds are loaded. The chip at the top right shows the mode, and says `dry run` when bans are counted but not dropped.
+
+The daemon's insights, without the client-side checks such as failing connections, are in the terminal too:
 
 ```shell
 netwatch status
@@ -38,7 +38,7 @@ netwatch status
 
 ## 3. Look at who is knocking
 
-**Sources** lists every address that sent traffic, scored 0–100. Open one to see why it scored what it did.
+**Threats** opens on a timeline of the flagged sources, one lane each, with when each finding, proposal and ban happened. **Threats › Sources** lists every address that sent traffic, scored 0–100. Open one to see what it did and where it stands.
 
 ![Sources, sorted by score](/screenshots/sources.png "Sources: score, findings, network and ban state for every address that sent traffic.")
 
@@ -49,7 +49,7 @@ netwatch ip 192.0.2.12           # everything about one address
 
 ## 4. Approve a ban
 
-In observe mode every ban is a **proposal**. **Bans & proposals** lists them with who proposed them (the rules or the model), why, and the command that applies each one.
+In observe mode every ban is a **proposal**. **Bans** lists them with who proposed them (the rules or the model), why, and the command that applies each one.
 
 ![Bans and proposals](/screenshots/bans.png "Bans & proposals: active bans with their drop counts, and proposals waiting for approval.")
 

@@ -1,9 +1,10 @@
-import type { Ban, Proposal } from "../api/types";
+import type { Ban, Overview, Proposal } from "../api/types";
 import { usePoll } from "../api/client";
 import { BanExpiry, BanSourceBadge, ProposalList, TargetLink, unbanCmd } from "../components/domain";
 import { Card, Command, CopyButton, PanelState, RelTime, Segmented } from "../components/ui";
 import { fmtInt } from "../lib/format";
 import { useQueryState } from "../lib/router";
+import { banMatched, bansDrop } from "../lib/mode";
 
 const STATUSES = ["pending", "all", "approved", "applied", "rejected", "expired"] as const;
 type StatusFilter = (typeof STATUSES)[number];
@@ -14,6 +15,8 @@ export default function Bans() {
   const status: StatusFilter = sp && STATUSES.includes(sp) ? sp : "pending";
 
   const bans = usePoll<Ban[]>("/api/bans", 10_000);
+  const ov = usePoll<Overview>("/api/overview", 30_000);
+  const drops = !ov.data || bansDrop(ov.data);
   // The API only distinguishes pending|all; narrower statuses are filtered here.
   const props = usePoll<Proposal[]>(`/api/proposals?status=${status === "pending" ? "pending" : "all"}`, 10_000);
   const shown = (props.data ?? []).filter((p) => status === "all" || p.status === status);
@@ -38,7 +41,9 @@ export default function Bans() {
                   <th>Reason</th>
                   <th>Created</th>
                   <th>Expires</th>
-                  <th className="num" title="Packets dropped since daemon start">Dropped</th>
+                  <th className="num" title={drops ? "Packets dropped since daemon start" : "Packets that hit the ban since daemon start; a dry run lets them through"}>
+                    {drops ? "Dropped" : "Matched, not dropped"}
+                  </th>
                   <th>Unban</th>
                 </tr>
               </thead>
@@ -58,7 +63,7 @@ export default function Bans() {
                     <td className="nowrap">
                       <BanExpiry ban={b} />
                     </td>
-                    <td className="num">{fmtInt(b.dropped)}</td>
+                    <td className="num">{fmtInt(drops ? b.dropped : banMatched(b))}</td>
                     <td className="nowrap">
                       <code className="inline-cmd">{unbanCmd(b.target)}</code> <CopyButton text={unbanCmd(b.target)} />
                     </td>

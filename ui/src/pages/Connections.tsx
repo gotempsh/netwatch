@@ -3,7 +3,7 @@ import type { ConnEvent, FlowGroup, FlowRow, FlowSort, FlowsSummary, FlowView, I
 import { connEventsPath, flowsPath, flowsSummaryPath, interfacesPath, usePoll, type FlowWindow } from "../api/client";
 import { StatTile, TimeChart, type ChartSeries } from "../components/charts";
 import { AppCell, DirArrow, FlowState, HostPort, ProcessCell, RemoteCell, RetransCell } from "../components/domain";
-import { Badge, Card, FilterInput, Flag, IpLink, LevelTag, PanelState, RankedList, RelTime, Segmented, Select, SortTh, Tabs, type RankItem, type Tone } from "../components/ui";
+import { Badge, Card, FilterInput, Flag, IpLink, LevelTag, PanelState, RankedList, RelTime, Segmented, Select, SortTh, type RankItem, type Tone } from "../components/ui";
 import { fmtAbsolute, fmtBitrate, fmtBytes, fmtClock, fmtClockSec, fmtCompact, fmtDayHour, fmtDuration, fmtInt } from "../lib/format";
 import { useQueryState } from "../lib/router";
 
@@ -21,18 +21,6 @@ export const FLOW_WINDOWS: { value: FlowWindow; label: string }[] = [
 const WINDOW_VALUES = new Set<string>(["5m", ...FLOW_WINDOWS.map((w) => w.value)]);
 export function parseWindow(v: string | null, def: FlowWindow): FlowWindow {
   return v && WINDOW_VALUES.has(v) ? (v as FlowWindow) : def;
-}
-
-export function ConnectionsTabs({ active }: { active: "connections" | "destinations" }) {
-  return (
-    <Tabs
-      active={active}
-      tabs={[
-        { key: "connections", label: "Connections", href: "#/connections" },
-        { key: "destinations", label: "Destinations", href: "#/destinations" },
-      ]}
-    />
-  );
 }
 
 const SORTS: FlowSort[] = ["bytes", "rate", "last", "first", "retrans"];
@@ -282,7 +270,7 @@ function SummaryStrip({ s, dim, onFilter }: { s: FlowsSummary; dim: boolean; onF
         />
         <StatTile label="Received" value={fmtBytes(s.bytes_in)} context={bytesSpan} trend={tail("bytes_in")} />
         <StatTile label="Sent" value={fmtBytes(s.bytes_out)} context={bytesSpan} trend={tail("bytes_out")} />
-        <StatTile label="Listening sockets" value={fmtCompact(s.listeners)} context="incl. loopback" href="#/listeners" />
+        <StatTile label="Listening sockets" value={fmtCompact(s.listeners)} context="incl. loopback" href="#/exposure" />
       </div>
       <div className="grid-2 grid-wide-right">
         <Card title="New flows per minute" sub="Last 60 minutes">
@@ -459,7 +447,6 @@ export default function Connections() {
     <div className="page">
       <div className="page-head">
         <h1>Connections</h1>
-        <ConnectionsTabs active="connections" />
         <div className="filters">
           <Segmented<FlowView>
             label="View"

@@ -14,7 +14,7 @@
 
   --text: #f1f0ec;
   --text-2: #c3c2b7;
-  --muted: #898781;
+  --muted: #939189;
   --grid: #2c2c2a;
   --axis: #383835;
 
@@ -32,6 +32,8 @@
   --warning: #fab219;
   --serious: #ec835a;
   --critical: #d03b3b;
+  /* --critical is a mark colour; text in that role uses this, AA on every surface. */
+  --critical-text: #f07370;
 
   --seq-fill: #3987e5;
   --seq-track: #1c2a3d;
@@ -54,7 +56,7 @@
 
     --text: #0b0b0b;
     --text-2: #52514e;
-    --muted: #75736e;
+    --muted: #6b6964;
     --grid: #e1e0d9;
     --axis: #c3c2b7;
 
@@ -67,6 +69,7 @@
     --series-3: #1baf7a;
     --series-4: #eda100;
     --deemph: #b5b3ac;
+    --critical-text: #b83232;
 
     --seq-fill: #3987e5;
     --seq-track: #cde2fb;
@@ -94,7 +97,7 @@ body {
 }
 
 h1 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.01em;
@@ -133,7 +136,17 @@ button {
   color: var(--muted);
 }
 .small {
-  font-size: 11.5px;
+  font-size: 12px;
+}
+/* Monospace inside small print and tables keeps the 12px floor. */
+.small .mono,
+.small code,
+.card-sub .mono,
+.tbl .mono {
+  font-size: max(12px, 0.94em);
+}
+p {
+  text-wrap: pretty;
 }
 .nowrap {
   white-space: nowrap;
@@ -149,7 +162,7 @@ button {
   white-space: nowrap;
 }
 .error-text {
-  color: var(--critical);
+  color: var(--critical-text);
 }
 .spacer {
   flex: 1;
@@ -161,7 +174,11 @@ button {
 
 /* ---- shell ---- */
 
+/* The top bar, section tabs and banners span the window, but their contents
+   line up with the page content: 20px from the edge, or centred on the same
+   1640px column as .main on wide screens. */
 .app {
+  --gutter: max(20px, calc((100% - 1640px) / 2));
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -175,7 +192,7 @@ button {
   align-items: center;
   gap: 18px;
   height: 46px;
-  padding: 0 20px;
+  padding: 0 var(--gutter);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -197,27 +214,70 @@ button {
 .nav {
   display: flex;
   gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  align-self: stretch;
 }
 .nav a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--radius);
+  padding: 0 12px;
+  font-size: 14px;
   color: var(--text-2);
   white-space: nowrap;
+  border-bottom: 2px solid transparent;
 }
 .nav a:hover {
-  background: var(--surface-2);
   text-decoration: none;
   color: var(--text);
 }
 .nav a.active {
-  background: var(--surface-3);
   color: var(--text);
-  font-weight: 550;
+  font-weight: 600;
+  border-bottom-color: var(--text);
+}
+/* The pages of the current section, under the top bar. */
+.subnav {
+  display: flex;
+  gap: 4px;
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subnav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.subnav a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.subnav a.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.subnav-inner {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+/* Tab icons sit a step quieter than their label and take its colour when active. */
+.nav a .icon,
+.subnav a .icon {
+  flex: none;
+  opacity: 0.75;
+}
+.nav a.active .icon,
+.subnav a.active .icon {
+  opacity: 1;
 }
 .nav-count {
   min-width: 18px;
@@ -250,7 +310,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 20px;
+  padding: 7px var(--gutter);
   background: color-mix(in srgb, var(--warning) 14%, var(--surface));
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
   font-size: 12.5px;
@@ -357,23 +417,61 @@ button {
   .banner {
     padding: 7px 12px;
   }
-  /* Brand and status on the first row, the nav as a full-width scrolling strip
-     below, faded at the right edge so it reads as scrollable. */
+  /* Brand and status on the first row, the five sections as a full-width row
+     below. Five items fit a 390 px screen without scrolling. */
   .topbar {
     flex-wrap: wrap;
     height: auto;
-    padding: 8px 12px 0;
-    gap: 6px 10px;
+    padding: 0 12px;
+    gap: 0 10px;
+  }
+  .brand,
+  .topbar-meta {
+    height: 40px;
   }
   .nav {
     order: 3;
     flex: 1 0 100%;
+    justify-content: space-between;
     margin: 0 -12px;
-    /* Right padding clears the fade, so the last item is readable when scrolled to the end. */
-    padding: 0 28px 6px 12px;
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    padding: 0 4px;
+    border-top: 1px solid var(--border);
   }
-  .topbar-meta .mono {
+  /* Icon over label, as in a phone tab bar, so the five still fit 390 px. */
+  .nav {
+    height: 50px;
+  }
+  .nav a {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+  .nav a .nav-count {
+    position: absolute;
+    top: 4px;
+    left: calc(50% + 6px);
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 15px;
+  }
+  .subnav {
+    padding: 0 6px;
+    /* Section pages scroll sideways on a phone; the fade says there is more. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .subnav-inner {
+    /* As wide as its tabs, so the end padding scrolls the last one clear of the fade. */
+    flex: none;
+    width: max-content;
+    min-width: 100%;
+    padding-right: 24px;
+  }
+  .topbar-meta .mono,
+  .readonly-tag {
     display: none;
   }
 }

@@ -138,9 +138,20 @@ impl Source {
     }
 }
 
+/// The attach mode while pf holds our rules.
+fn pf_mode(pf: &Pf) -> &'static str {
+    if pf.unreferenced {
+        "capture+pf-unreferenced"
+    } else {
+        "capture+pf"
+    }
+}
+
 pub struct Kernel {
     shared: Arc<Shared>,
-    /// "capture" (bans counted only) or "capture+pf" (bans dropped by pf).
+    /// "capture" (bans counted only), "capture+pf" (bans dropped by pf), or
+    /// "capture+pf-unreferenced" (pf runs, but pf.conf never evaluates the anchor, so
+    /// bans are only counted).
     pub attach_mode: &'static str,
     pub flows_ok: bool,
     /// Kernel features the sensor relies on, by name.
@@ -320,13 +331,13 @@ impl Kernel {
                 Ok(pf) => {
                     if pf.unreferenced {
                         log::warn!(
-                            "the pf ruleset has no anchor \"com.apple/*\", so bans in {} are not evaluated; add `anchor \"{}\"` to /etc/pf.conf",
+                            "the pf ruleset evaluates neither anchor \"com.apple/*\" nor \"{}\", so bans are counted, not dropped; add `anchor \"{}\"` to /etc/pf.conf and reload pf",
                             super::pf::ANCHOR,
                             super::pf::ANCHOR
                         );
                     }
+                    self.attach_mode = pf_mode(&pf);
                     self.pf = Some(pf);
-                    self.attach_mode = "capture+pf";
                 }
                 Err(e) => log::warn!("bans will be counted but not dropped: {e:#}"),
             }
@@ -353,6 +364,13 @@ impl Kernel {
     /// Records flows on every wanted interface and stops on the ones that went
     /// away (utun devices come and go with VPNs).
     pub fn sync_interfaces(&mut self, want: &[WantIf]) {
+        // A pf.conf fixed and reloaded while we run takes effect without a restart.
+        if let Some(pf) = self.pf.as_mut()
+            && pf.recheck()
+        {
+            self.attach_mode = pf_mode(pf);
+            log::info!("pf ruleset changed: bans are now {}", self.attach_mode);
+        }
         *self.shared.local.write().unwrap() = host_addresses();
         // A capture whose interface vanished has ended; it reopens when it returns.
         let dead: Vec<String> = self

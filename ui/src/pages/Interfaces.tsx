@@ -1,21 +1,9 @@
 import type { InterfacesInfo, IfStat } from "../api/types";
 import { interfacesPath, usePoll } from "../api/client";
 import { Check, IfKindBadge } from "../components/domain";
-import { Badge, Card, Empty, PanelState, RelTime, Tabs } from "../components/ui";
+import { Badge, Card, Empty, PanelState, RelTime } from "../components/ui";
 import { fmtBits, fmtBytes, fmtCompact, fmtInt, fmtRate } from "../lib/format";
 import { href } from "../lib/router";
-
-export function NetworkTabs({ active }: { active: "interfaces" | "listeners" }) {
-  return (
-    <Tabs
-      active={active}
-      tabs={[
-        { key: "interfaces", label: "Interfaces", href: "#/interfaces" },
-        { key: "listeners", label: "Listeners", href: "#/listeners" },
-      ]}
-    />
-  );
-}
 
 function Attachments({ i }: { i: Pick<IfStat, "xdp" | "flows"> }) {
   if (!i.xdp && !i.flows) return <span className="muted small">not monitored</span>;
@@ -48,8 +36,7 @@ export default function Interfaces() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Network</h1>
-        <NetworkTabs active="interfaces" />
+        <h1>Interfaces & sensor</h1>
       </div>
       {!d && <PanelState loading={res.loading} error={res.error} />}
       {d && (
@@ -132,7 +119,7 @@ export default function Interfaces() {
                             )}
                           </td>
                           <td className="num">
-                            {i.active_flows > 0 ? <a href={href("/connections", { iface: i.name })}>{fmtInt(i.active_flows)}</a> : <span className="muted">{i.flows ? "0" : "–"}</span>}
+                            {i.active_flows > 0 ? <a href={href("/traffic/connections", { iface: i.name })}>{fmtInt(i.active_flows)}</a> : <span className="muted">{i.flows ? "0" : "–"}</span>}
                           </td>
                         </tr>
                       );

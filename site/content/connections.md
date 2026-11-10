@@ -36,7 +36,7 @@ netwatch events --kind connect_failed           # failed outbound connects
 
 ## When the kernel refuses the programs
 
-The kernel checks every eBPF program before it loads it, and older kernels are stricter. If it refuses the flow programs, netwatch keeps running without connection tracking: per-source counters, findings and bans still work, but Connections, DNS and exploit detection stay empty. `netwatch status` and the Overview then show the insight *Connection tracking is off*, `netwatch ifaces` lists no flows, and the daemon log has the kernel's reason:
+The kernel checks every eBPF program before it loads it, and older kernels are stricter. If it refuses the flow programs, netwatch keeps running without connection tracking: per-source counters, findings and bans still work, but Connections, DNS and exploit detection stay empty. `netwatch status` and the Status page then show the insight *Connection tracking is off*, `netwatch ifaces` lists no flows, and the daemon log has the kernel's reason:
 
 ```shell
 journalctl -u netwatch -b | grep 'flow program'

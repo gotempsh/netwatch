@@ -579,6 +579,7 @@ function detail(ip: string): SourceDetail {
       alerts: [],
       history: [],
       ssh_events: [],
+      ssh_logins: [],
       ban: null,
       proposals: [],
       flows,
@@ -592,6 +593,7 @@ function detail(ip: string): SourceDetail {
     alerts: alerts().filter((a) => a.ip === ip),
     history: history(seed),
     ssh_events: sshEvents().filter((e) => e.ip === ip).slice(0, 50),
+    ssh_logins: sshEvents().filter((e) => e.ip === ip && e.kind === "accepted"),
     ban: bans().find((b) => b.target === ip) ?? null,
     proposals: proposals().filter((p) => p.target === ip),
     flows,
@@ -1071,6 +1073,7 @@ function destinations(q: URLSearchParams): Destinations {
     last: (d) => d.last_seen,
     first: (d) => d.first_seen,
     flows: (d) => d.flows,
+    failed: (d) => d.failed,
   };
   const k = key[q.get("sort") ?? "flows"] ?? key.flows;
   rows.sort((a, b) => k(b) - k(a));
@@ -1465,8 +1468,14 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
   if (p === "/api/sources") {
     let list = allSources();
     const needle = (q.get("q") ?? "").toLowerCase();
-    if (needle) list = list.filter((s) => [s.ip, s.geo.country_code, s.geo.country, s.geo.as_org, s.geo.asn ? `as${s.geo.asn}` : ""].some((v) => v && String(v).toLowerCase().includes(needle)));
+    // As the daemon: "as174" is exactly AS174, anything else a substring.
+    const asn = /^as(\d+)$/.exec(needle)?.[1];
+    if (asn) list = list.filter((s) => s.geo.asn === Number(asn));
+    else if (needle) list = list.filter((s) => [s.ip, s.geo.country_code, s.geo.country, s.geo.as_org, s.geo.asn ? `as${s.geo.asn}` : ""].some((v) => v && String(v).toLowerCase().includes(needle)));
     if (q.get("flagged") === "1") list = list.filter((s) => s.score > 0);
+    // The demo's scanners probe every common port; its brute-forcers only 22.
+    const port = Number(q.get("port"));
+    if (port) list = list.filter((s) => s.findings.length > 0 && (port === 22 || !s.ssh.failed));
     const key = q.get("sort") ?? "score";
     const val: Record<string, (s: Source) => number> = {
       score: (s) => s.score,
@@ -1487,7 +1496,7 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
     if (ip) a = a.filter((x) => x.ip === ip);
     return a.slice(0, limit ?? 200);
   }
-  if (p === "/api/bans") return bans();
+  if (p === "/api/bans") return bans().map((b) => ({ ...b, matched: b.dropped }));
   if (p === "/api/proposals") {
     const all = proposals();
     return q.get("status") === "all" ? all : all.filter((x) => x.status === "pending");
@@ -1510,5 +1519,8 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
   if (p === "/api/listeners") return listeners();
   if (p === "/api/dns") return dns(q);
   if (p === "/api/conn_events") return connEvents(q);
+  // Aggregates, built from the endpoints above (mock-views.ts).
+  if (p === "/api/timeline") return (await import("./mock-views")).mockTimeline((x) => mockGet(x), q);
+  if (p === "/api/flows/graph") return (await import("./mock-views")).mockFlowGraph((x) => mockGet(x), q);
   throw new ApiError(404, `mock: no fixture for ${p}`);
 }

@@ -90,6 +90,8 @@ export interface SourceDetail extends Source {
   alerts: Alert[];
   history: HourPoint[]; // last 7 days, hourly
   ssh_events: SshEvent[];
+  /** Accepted logins, which newer failures can't push out of `ssh_events`' 200 (missing from older daemons). */
+  ssh_logins?: SshEvent[];
   ban: Ban | null;
   proposals: Proposal[];
   /** Active flows first, then finished flows from the last 7 days (newest first). */
@@ -118,7 +120,10 @@ export interface Ban {
   expires: number | null; // null = permanent
   reason: string;
   source: "manual" | "auto" | "policy" | "llm";
-  dropped: number; // packets dropped since daemon start
+  /** Packets from the target that hit the ban since daemon start (absent from daemons before 0.1.4). */
+  matched?: number;
+  /** Of those, how many were dropped: all of them, or 0 in a dry run (`drop_banned = false`). */
+  dropped: number;
 }
 
 /** GET /api/proposals?status=pending|all — actions waiting for a human (approve via CLI). */
@@ -167,8 +172,8 @@ export interface Overview {
   host: string;
   version: string;
   interface: string;
-  /** Linux: XDP mode. macOS: "capture" (/dev/bpf), "capture+pf" when pf drops bans. */
-  attach_mode: "driver" | "skb" | "capture" | "capture+pf";
+  /** Linux: XDP mode. macOS: "capture" (/dev/bpf), "capture+pf" when pf drops bans, "capture+pf-unreferenced" when pf runs but pf.conf never evaluates the anchor. */
+  attach_mode: "driver" | "skb" | "capture" | "capture+pf" | "capture+pf-unreferenced";
   /** Where the daemon runs (absent from older daemons, which are all Linux). */
   platform?: "linux" | "macos";
   mode: "observe" | "enforce";
@@ -449,7 +454,7 @@ export interface Destinations {
   rows: Destination[];
 }
 
-export type DestinationSort = "flows" | "bytes" | "last" | "first";
+export type DestinationSort = "flows" | "bytes" | "last" | "first" | "failed";
 
 export type FlowView = "active" | "history" | "all";
 export type FlowSort = "bytes" | "rate" | "last" | "first" | "retrans";
@@ -626,4 +631,82 @@ export interface ConnEvent {
   /** systemd service (without ".service") when the process isn't in a container. */
   unit: string | null;
   detail: string;
+}
+
+/** GET /api/timeline?window=24h|7d&limit= — one lane per flagged source, highest score first. */
+export interface Timeline {
+  since: number;
+  now: number;
+  /** Flagged sources active in the window; `rows` holds the highest-scoring `limit` of them. */
+  total: number;
+  rows: TimelineRow[];
+}
+
+export interface TimelineRow {
+  ip: string;
+  geo: GeoInfo;
+  score: number;
+  findings: Finding[];
+  allowlisted: boolean;
+  status: "banned" | "ban proposed" | "watching";
+  ssh_accepted: number;
+  first_seen: number;
+  last_seen: number;
+  hours: { hour: number; in_packets: number; syn: number; blocked: number }[];
+  /** Oldest first, inside the window. */
+  events: TimelineEvent[];
+  ban: Ban | null;
+}
+
+export interface TimelineEvent {
+  ts: number;
+  kind: "finding" | "proposal" | "ban" | "login";
+  label: string;
+  /** The finding's kind (ssh_bruteforce, port_scan, ...), for findings. */
+  finding?: string;
+}
+
+/** GET /api/flows/graph?window=5m|1h|24h — the host map, folded to a few nodes per column. */
+export interface FlowGraph {
+  since: number;
+  now: number;
+  /** Flows in the window (open ones included). */
+  flows: number;
+  active: number;
+  /** More stored flows than one request reads: the map covers the most recent ones. */
+  truncated: boolean;
+  /** left: who connects in, right: the service on this host. */
+  inbound: GraphHalf;
+  /** left: the program on this host, right: what it connects to. */
+  outbound: GraphHalf;
+}
+
+export interface GraphHalf {
+  left: GraphNode[];
+  right: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface GraphNode {
+  key: string;
+  label: string;
+  sub: string;
+  flows: number;
+  bytes: number;
+  failed: number;
+  hostile: boolean;
+  /** For a folded "N more" node, how many nodes it holds. */
+  folded: number;
+  /** /api/flows parameters that list this node's connections; null when it has no single filter. */
+  filter: { dir: "in" | "out"; ip?: string; port?: number; process?: string; q?: string } | null;
+}
+
+export interface GraphEdge {
+  a: string;
+  b: string;
+  flows: number;
+  bytes: number;
+  failed: number;
+  hostile: boolean;
+  reason: "refused" | "timed out" | "unanswered" | null;
 }

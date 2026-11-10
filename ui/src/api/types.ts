@@ -661,3 +661,48 @@ export interface TimelineEvent {
   /** The finding's kind (ssh_bruteforce, port_scan, ...), for findings. */
   finding?: string;
 }
+
+/** GET /api/flows/graph?window=5m|1h|24h — the host map, folded to a few nodes per column. */
+export interface FlowGraph {
+  since: number;
+  now: number;
+  /** Flows in the window (open ones included). */
+  flows: number;
+  active: number;
+  /** More stored flows than one request reads: the map covers the most recent ones. */
+  truncated: boolean;
+  /** left: who connects in, right: the service on this host. */
+  inbound: GraphHalf;
+  /** left: the program on this host, right: what it connects to. */
+  outbound: GraphHalf;
+}
+
+export interface GraphHalf {
+  left: GraphNode[];
+  right: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface GraphNode {
+  key: string;
+  label: string;
+  sub: string;
+  flows: number;
+  bytes: number;
+  failed: number;
+  hostile: boolean;
+  /** For a folded "N more" node, how many nodes it holds. */
+  folded: number;
+  /** /api/flows parameters that list this node's connections; null when it has no single filter. */
+  filter: { dir: "in" | "out"; ip?: string; port?: number; process?: string; q?: string } | null;
+}
+
+export interface GraphEdge {
+  a: string;
+  b: string;
+  flows: number;
+  bytes: number;
+  failed: number;
+  hostile: boolean;
+  reason: "refused" | "timed out" | "unanswered" | null;
+}

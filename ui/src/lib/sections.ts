@@ -33,6 +33,7 @@ export const SECTIONS: Section[] = [
     label: "Traffic",
     path: "/traffic",
     tabs: [
+      { path: "/traffic", label: "Map" },
       { path: "/traffic/connections", label: "Connections" },
       { path: "/traffic/destinations", label: "Destinations" },
       { path: "/traffic/dns", label: "DNS" },
@@ -61,7 +62,6 @@ export const SECTIONS: Section[] = [
 /** Old paths (and section paths without a page of their own) to where they live now. */
 export const REDIRECTS: Record<string, string> = {
   "/overview": "/",
-  "/traffic": "/traffic/connections",
   "/sources": "/threats/sources",
   "/alerts": "/threats/alerts",
   "/ssh": "/threats/ssh",

@@ -41,7 +41,8 @@ export function failGroups(events: ConnEvent[], dests: Destination[]): FailGroup
   const m = new Map<string, FailGroup>();
   for (const e of events) {
     if (e.kind !== "connect_failed" || !e.remote) continue;
-    const owner = e.unit ?? e.container ?? e.process ?? "an unknown process";
+    // Same order as the host map's program boxes, so the evidence link lands on one.
+    const owner = e.container ?? e.unit ?? e.process ?? "an unknown process";
     const k = `${owner}|${e.remote}|${e.rport}`;
     let g = m.get(k);
     if (!g) {
@@ -114,7 +115,7 @@ export function deriveIssues(insights: Insight[], proposals: Proposal[], fails: 
       consequence: `${g.count} connection attempts in the last 24 h ${g.count === 1 ? "was" : "were"} ${failWord(g)}${g.neverConnected ? " and none got through" : ""}, the latest ${fmtAgo(now - g.last)}.`,
       fix,
       fixNote: fix ? undefined : "No command to run: check what calls it.",
-      evidence: { href: `#/traffic/connections?view=all&window=24h&ip=${encodeURIComponent(g.remote)}&dir=out`, label: `Connections to ${g.name ?? g.remote}` },
+      evidence: { href: `#/traffic?window=24h&node=${encodeURIComponent(`prog:${g.owner}`)}`, label: `Where ${g.owner} connects` },
     });
   }
 

@@ -674,8 +674,10 @@
   fill: var(--critical);
   font-weight: 600;
 }
+/* --serious is a mark colour; mixed toward the text ink it passes AA as text. */
 .map-node .hostile {
-  fill: var(--serious);
+  fill: color-mix(in srgb, var(--serious) 70%, var(--text));
+  font-weight: 600;
 }
 .map-node rect.n {
   fill: var(--surface-2);
@@ -939,4 +941,39 @@
 }
 .evidence-body .empty {
   padding: 14px 16px;
+}
+
+/* ---------- host map: header, empty halves, the list under it ---------- */
+.map-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.map-side {
+  min-width: 0;
+}
+.map-none {
+  padding: 24px 0;
+}
+.panel.flush-panel {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.flush-panel .empty,
+.flush-panel .panel-state {
+  padding: 14px 16px;
+}
+/* Long hostnames end in an ellipsis rather than wrapping mid-word. */
+.flush-panel td.clip-cell {
+  max-width: 0;
+  width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel .tbl td.clip-cell .mono {
+  overflow-wrap: normal;
 }

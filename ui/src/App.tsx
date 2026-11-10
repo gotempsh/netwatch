@@ -15,6 +15,7 @@ import Ssh from "./pages/Ssh";
 import Bans from "./pages/Bans";
 import Geo from "./pages/Geo";
 import Policy from "./pages/Policy";
+import TrafficMap from "./pages/TrafficMap";
 import Connections from "./pages/Connections";
 import Destinations from "./pages/Destinations";
 import Interfaces from "./pages/Interfaces";
@@ -28,6 +29,7 @@ const PAGES: Record<string, () => ReactNode> = {
   "/threats/alerts": () => <Alerts />,
   "/threats/ssh": () => <Ssh />,
   "/threats/networks": () => <Geo />,
+  "/traffic": () => <TrafficMap />,
   "/traffic/connections": () => <Connections />,
   "/traffic/destinations": () => <Destinations />,
   "/traffic/dns": () => <Dns />,

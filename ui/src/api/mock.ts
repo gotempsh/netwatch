@@ -1503,5 +1503,6 @@ export async function mockGet(path: string, signal?: AbortSignal): Promise<unkno
   if (p === "/api/conn_events") return connEvents(q);
   // Aggregates, built from the endpoints above (mock-views.ts).
   if (p === "/api/timeline") return (await import("./mock-views")).mockTimeline((x) => mockGet(x), q);
+  if (p === "/api/flows/graph") return (await import("./mock-views")).mockFlowGraph((x) => mockGet(x), q);
   throw new ApiError(404, `mock: no fixture for ${p}`);
 }

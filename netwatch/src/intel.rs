@@ -317,24 +317,33 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 /// The command's stdout if it exits successfully, `Ok(None)` if it can't be
-/// started or fails, `Err(())` if it is still running after `timeout` (it is
-/// killed then).
+/// started or fails, `Err(())` if it hasn't finished within `timeout`.
+/// "Finished" includes anything it started that still holds its stdout, such
+/// as the real CLI behind a wrapper script: the command runs in its own
+/// process group, and the whole group is killed at the deadline.
 fn run_with_timeout(mut c: std::process::Command, timeout: Duration) -> Result<Option<String>, ()> {
-    use std::{io::Read as _, process::Stdio};
+    use std::{io::Read as _, os::unix::process::CommandExt as _, process::Stdio};
     let Ok(mut child) = c
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
     else {
         return Ok(None);
     };
+    let group = child.id() as libc::pid_t;
+    let kill_group = || {
+        // SAFETY: kill has no memory-safety preconditions; the group is ours.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    };
     // Read while waiting: a full pipe would stop a chatty command from exiting.
     let mut stdout = child.stdout.take().expect("piped");
-    let reader = std::thread::spawn(move || {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stdout.read_to_end(&mut buf);
-        buf
+        let _ = tx.send(buf);
     });
     let deadline = std::time::Instant::now() + timeout;
     let status = loop {
@@ -344,16 +353,23 @@ fn run_with_timeout(mut c: std::process::Command, timeout: Duration) -> Result<O
                 std::thread::sleep(Duration::from_millis(20))
             }
             _ => {
-                let _ = child.kill();
+                kill_group();
                 let _ = child.wait();
                 return Err(());
             }
         }
     };
-    let out = reader.join().unwrap_or_default();
-    Ok(status
-        .success()
-        .then(|| String::from_utf8_lossy(&out).into_owned()))
+    // The output ends when the last process holding the pipe exits.
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    match rx.recv_timeout(left) {
+        Ok(out) => Ok(status
+            .success()
+            .then(|| String::from_utf8_lossy(&out).into_owned())),
+        Err(_) => {
+            kill_group();
+            Err(())
+        }
+    }
 }
 
 fn endpoint_ip(s: &str) -> Option<IpAddr> {
@@ -540,6 +556,18 @@ mod tests {
     fn a_hanging_command_is_cut_off() {
         let start = std::time::Instant::now();
         let r = run_with_timeout(sh("sleep 30"), std::time::Duration::from_millis(200));
+        assert_eq!(r, Err(()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_process_left_holding_the_output_is_cut_off_too() {
+        // The command exits at once, but what it started keeps stdout open.
+        let start = std::time::Instant::now();
+        let r = run_with_timeout(
+            sh("sleep 30 & echo hi"),
+            std::time::Duration::from_millis(500),
+        );
         assert_eq!(r, Err(()));
         assert!(start.elapsed() < std::time::Duration::from_secs(5));
     }

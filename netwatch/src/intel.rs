@@ -382,6 +382,146 @@ fn run_with_timeout(mut c: std::process::Command, timeout: Duration) -> Result<O
     }
 }
 
+/// The open-source tailscaled's socket (Homebrew, `tailscaled install-system-daemon`).
+/// The Mac App Store and standalone apps have none; their CLI is in the app bundle.
+#[cfg(target_os = "macos")]
+const TAILSCALED_SOCKET: &str = "/var/run/tailscaled.socket";
+/// wireguard-go's control sockets, one per interface (`wg-quick` from Homebrew).
+#[cfg(target_os = "macos")]
+const WIREGUARD_SOCKETS: &str = "/var/run/wireguard";
+
+/// Sends `request` on a Unix socket and reads the answer until the other side
+/// closes or `done` says it is complete. Like [`run_with_timeout`]: `Ok(None)`
+/// if nothing listens there, `Err(())` if the answer isn't in by `timeout`.
+///
+/// launchd starts the daemon with PATH=/usr/bin:/bin:/usr/sbin:/sbin, where a
+/// Homebrew `tailscale` or `wg` isn't, so on macOS netwatch asks their daemons
+/// directly, as those CLIs do.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn ask_socket(
+    path: &std::path::Path,
+    request: &[u8],
+    done: impl Fn(&[u8]) -> bool,
+    timeout: Duration,
+) -> Result<Option<Vec<u8>>, ()> {
+    use std::io::{ErrorKind, Read as _, Write as _};
+    let Ok(mut s) = std::os::unix::net::UnixStream::connect(path) else {
+        return Ok(None);
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    let timed_out =
+        |e: &std::io::Error| matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut);
+    let _ = s.set_write_timeout(Some(timeout));
+    if let Err(e) = s.write_all(request) {
+        return if timed_out(&e) { Err(()) } else { Ok(None) };
+    }
+    let mut out = Vec::new();
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(());
+        }
+        let _ = s.set_read_timeout(Some(left));
+        match s.read(&mut buf) {
+            Ok(0) => return Ok(Some(out)),
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if done(&out) {
+                    return Ok(Some(out));
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if timed_out(&e) => return Err(()),
+            Err(_) => return Ok(None),
+        }
+    }
+}
+
+/// A GET on tailscaled's LocalAPI: `/localapi/v0/status` is what
+/// `tailscale status --json` prints, `/localapi/v0/derpmap` what
+/// `tailscale debug derp-map` does.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn localapi(socket: &std::path::Path, path: &str, timeout: Duration) -> Answer {
+    // HTTP/1.0: the answer is the whole body up to the close, never chunked.
+    let request = format!(
+        "GET {path} HTTP/1.0\r\nHost: local-tailscaled.sock\r\nSec-Tailscale: localapi\r\n\r\n"
+    );
+    match ask_socket(socket, request.as_bytes(), |_| false, timeout) {
+        Ok(Some(resp)) => {
+            let text = String::from_utf8_lossy(&resp);
+            match text.split_once("\r\n\r\n") {
+                Some((head, body))
+                    if head
+                        .lines()
+                        .next()
+                        .is_some_and(|l| l.split_whitespace().nth(1) == Some("200")) =>
+                {
+                    Answer::Output(body.to_string())
+                }
+                _ => Answer::Nothing,
+            }
+        }
+        Ok(None) => Answer::Nothing,
+        Err(()) => {
+            log::warn!(
+                "{} didn't answer {path} within {}s; trying again in 10 minutes",
+                socket.display(),
+                timeout.as_secs()
+            );
+            Answer::TimedOut
+        }
+    }
+}
+
+/// Every wireguard-go interface's UAPI answer to `get=1`, one after another.
+/// `None` when there is no such socket, to fall back to `wg`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn wireguard_uapi(dir: &std::path::Path, timeout: Duration) -> Option<Answer> {
+    let mut socks: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| Some(e.ok()?.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "sock"))
+        .collect();
+    if socks.is_empty() {
+        return None;
+    }
+    socks.sort();
+    let mut text = String::new();
+    let mut timed_out = false;
+    for sock in &socks {
+        // The answer ends with `errno=N` and a blank line; the socket stays open for more.
+        let done = |b: &[u8]| b.ends_with(b"\n\n") && b.windows(6).any(|w| w == b"errno=");
+        match ask_socket(sock, b"get=1\n\n", done, timeout) {
+            Ok(Some(out)) => text.push_str(&String::from_utf8_lossy(&out)),
+            Ok(None) => {}
+            Err(()) => {
+                log::warn!(
+                    "{} didn't answer within {}s; trying again in 10 minutes",
+                    sock.display(),
+                    timeout.as_secs()
+                );
+                timed_out = true;
+            }
+        }
+    }
+    // Keep the last addresses rather than drop the ones a slow interface had.
+    Some(if timed_out {
+        Answer::TimedOut
+    } else {
+        Answer::Output(text)
+    })
+}
+
+/// `endpoint=` lines of a UAPI `get` answer.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn uapi_endpoints(text: &str) -> Vec<IpAddr> {
+    text.lines()
+        .filter_map(|l| l.strip_prefix("endpoint="))
+        .filter_map(endpoint_ip)
+        .collect()
+}
+
 fn endpoint_ip(s: &str) -> Option<IpAddr> {
     s.parse::<std::net::SocketAddr>().ok().map(|a| a.ip())
 }
@@ -493,14 +633,22 @@ fn derp_nodes(text: &str) -> Vec<IpAddr> {
 pub fn discover_peers(cfg: &Config, previous: &Peers) -> Peers {
     let mut out = Peers::new();
     if cfg.allow_wireguard_peers {
-        let answer = run("wg", &["show", "all", "endpoints"]);
-        record(&mut out, previous, "wireguard", answer, wireguard_endpoints);
+        #[cfg(target_os = "macos")]
+        let uapi = wireguard_uapi(std::path::Path::new(WIREGUARD_SOCKETS), RUN_TIMEOUT);
+        #[cfg(not(target_os = "macos"))]
+        let uapi = None;
+        match uapi {
+            Some(answer) => record(&mut out, previous, "wireguard", answer, uapi_endpoints),
+            None => {
+                let answer = run("wg", &["show", "all", "endpoints"]);
+                record(&mut out, previous, "wireguard", answer, wireguard_endpoints);
+            }
+        }
     }
     if cfg.allow_tailscale_peers {
-        let answer = run("tailscale", &["status", "--json"]);
-        record(&mut out, previous, "tailscale", answer, tailscale_peers);
-        let answer = run("tailscale", &["debug", "derp-map"]);
-        record(&mut out, previous, "derp", answer, derp_nodes);
+        let (status, derp) = tailscale_answers();
+        record(&mut out, previous, "tailscale", status, tailscale_peers);
+        record(&mut out, previous, "derp", derp, derp_nodes);
     }
     // The default gateway.
     #[cfg(target_os = "macos")]
@@ -530,7 +678,37 @@ pub fn discover_peers(cfg: &Config, previous: &Peers) -> Peers {
             },
         );
     }
+    for (source, found) in &out {
+        let before = previous.get(source).map_or(0, |f| f.addrs.len());
+        if found.addrs.len() != before {
+            log::info!(
+                "{source}: {} address(es) allowlisted (was {before})",
+                found.addrs.len()
+            );
+        }
+    }
     out
+}
+
+/// `tailscale status --json` and `tailscale debug derp-map`. On macOS from
+/// tailscaled's socket when it has one; the CLI otherwise (the app bundle's, or
+/// one in PATH), or if the socket is left over from a tailscaled that stopped.
+fn tailscale_answers() -> (Answer, Answer) {
+    #[cfg(target_os = "macos")]
+    {
+        let socket = std::path::Path::new(TAILSCALED_SOCKET);
+        if socket.exists() {
+            let status = localapi(socket, "/localapi/v0/status", RUN_TIMEOUT);
+            if !matches!(status, Answer::Nothing) {
+                let derp = localapi(socket, "/localapi/v0/derpmap", RUN_TIMEOUT);
+                return (status, derp);
+            }
+        }
+    }
+    (
+        run("tailscale", &["status", "--json"]),
+        run("tailscale", &["debug", "derp-map"]),
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -691,6 +869,126 @@ mod tests {
         let derp = r#"{"Regions":{"1":{"Nodes":[{"IPv4":"192.0.2.1","IPv6":"2001:db8::1"}]}}}"#;
         assert_eq!(derp_nodes(derp).len(), 2);
         assert!(derp_nodes("not json").is_empty());
+    }
+
+    /// A Unix socket in a fresh directory that answers each connection with `serve`.
+    fn fake_daemon(
+        name: &str,
+        serve: impl Fn(std::os::unix::net::UnixStream) + Send + 'static,
+    ) -> std::path::PathBuf {
+        // Short: macOS allows 104 bytes for a socket path, and $TMPDIR is long there.
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("nw{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{name}.sock"));
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                serve(conn);
+            }
+        });
+        path
+    }
+
+    #[test]
+    fn asks_tailscaled_on_its_socket() {
+        use super::{Answer, localapi, tailscale_peers};
+        use std::io::{BufRead as _, Write as _};
+        let sock = fake_daemon("tailscaled", |mut c| {
+            let mut first = String::new();
+            std::io::BufReader::new(&c).read_line(&mut first).unwrap();
+            let body = if first.starts_with("GET /localapi/v0/status ") {
+                r#"{"Peer":{"a":{"CurAddr":"198.51.100.7:41641"}}}"#
+            } else {
+                ""
+            };
+            let status = if body.is_empty() {
+                "404 Not Found"
+            } else {
+                "200 OK"
+            };
+            write!(
+                c,
+                "HTTP/1.0 {status}\r\nContent-Type: application/json\r\n\r\n{body}"
+            )
+            .unwrap();
+        });
+        let t = std::time::Duration::from_secs(5);
+        let Answer::Output(json) = localapi(&sock, "/localapi/v0/status", t) else {
+            panic!("no status");
+        };
+        assert_eq!(
+            tailscale_peers(&json),
+            ["198.51.100.7".parse::<std::net::IpAddr>().unwrap()]
+        );
+        assert!(matches!(
+            localapi(&sock, "/localapi/v0/nope", t),
+            Answer::Nothing
+        ));
+        // Left over from a tailscaled that stopped: nothing listens.
+        let stale = sock.with_file_name("stale.sock");
+        drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
+        assert!(matches!(
+            localapi(&stale, "/localapi/v0/status", t),
+            Answer::Nothing
+        ));
+        std::fs::remove_dir_all(sock.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_daemon_that_never_answers_times_out() {
+        use super::{Answer, localapi};
+        let sock = fake_daemon("hung", |c| {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            drop(c);
+        });
+        let start = std::time::Instant::now();
+        let a = localapi(
+            &sock,
+            "/localapi/v0/status",
+            std::time::Duration::from_millis(300),
+        );
+        assert!(matches!(a, Answer::TimedOut));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        std::fs::remove_dir_all(sock.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn asks_wireguard_go_on_its_sockets() {
+        use super::{Answer, uapi_endpoints, wireguard_uapi};
+        use std::io::{BufRead as _, Write as _};
+        // wireguard-go answers `get=1` and keeps the connection open for the next request.
+        let sock = fake_daemon("utun7", |mut c| {
+            let mut r = std::io::BufReader::new(c.try_clone().unwrap());
+            let mut line = String::new();
+            r.read_line(&mut line).unwrap();
+            assert_eq!(line, "get=1\n");
+            c.write_all(
+                b"private_key=00\nlisten_port=51820\npublic_key=01\nendpoint=203.0.113.9:51820\n\
+                  public_key=02\nendpoint=[2001:db8::9]:51820\npublic_key=03\nerrno=0\n\n",
+            )
+            .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        });
+        let dir = sock.parent().unwrap();
+        let t = std::time::Duration::from_secs(5);
+        let start = std::time::Instant::now();
+        let Some(Answer::Output(text)) = wireguard_uapi(dir, t) else {
+            panic!("no answer");
+        };
+        assert!(start.elapsed() < std::time::Duration::from_secs(4));
+        assert_eq!(
+            uapi_endpoints(&text),
+            ["203.0.113.9", "2001:db8::9"].map(|s| s.parse::<std::net::IpAddr>().unwrap())
+        );
+        // No sockets: fall back to `wg`.
+        let empty = dir.join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        assert!(wireguard_uapi(&empty, t).is_none());
+        assert!(wireguard_uapi(&dir.join("missing"), t).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

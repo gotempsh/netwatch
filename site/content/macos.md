@@ -51,6 +51,7 @@ Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daem
 - **Capture cost.** Capture happens in userspace, so CPU use grows with traffic. That's fine for a workstation or a small server; it isn't line rate like XDP. Packets are cut at about 1.2 KB, and the log warns if the kernel drops captures.
 - **Linux-only settings.** `xdp_mode`, `drop_syn_ip_options` and the CVE-2026-98432 alerts (a Linux TCP bug) don't apply. `ssh_units` is replaced by the unified log.
 - **SSH.** SSH alerts need Remote Login (System Settings › General › Sharing). Without it, the "sshd accepts passwords" check is skipped.
+- **Tailscale and WireGuard peers.** They are read from tailscaled's socket (`/var/run/tailscaled.socket`, the Homebrew or open-source tailscaled) or the Tailscale app's bundled CLI, and from wireguard-go's sockets in `/var/run/wireguard` (`wg-quick` from Homebrew). The WireGuard app from the App Store runs its tunnels in a network extension that netwatch can't ask, so add its endpoints with `sudo netwatch allow`.
 - **Paths.** Data lives in `/var/db/netwatch` and sockets in `/var/run/netwatch`.
 
 ## Replaying a capture

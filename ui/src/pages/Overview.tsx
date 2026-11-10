@@ -254,7 +254,8 @@ export default function Overview() {
         <StatTile
           label="Dropped/s"
           value={fmtCompact(o.rates.dropped_pps)}
-          context={o.mode === "observe" ? "observe: not dropped" : `${fmtCompact(o.totals.dropped)} since start`}
+          // Bans drop in observe mode too; only drop_banned = false (or macOS without pf) counts them instead.
+          context={o.drop_banned && o.attach_mode !== "capture" ? `${fmtCompact(o.totals.dropped)} since start` : "bans counted, not dropped"}
           trend={tail("dropped_pps")}
         />
         <StatTile label="Active sources (10m)" value={fmtCompact(c.sources_active_10m)} context={`${fmtCompact(c.sources_tracked)} tracked`} href="#/sources?sort=last_seen" />

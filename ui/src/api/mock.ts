@@ -1,5 +1,6 @@
 // Fixture data for `npm run dev:mock` (VITE_MOCK=1). Loaded via dynamic import
 // from client.ts only in mock mode, so none of this ships in production builds.
+import pkg from "../../package.json";
 import { ApiError } from "./client";
 import type {
   Alert,
@@ -387,10 +388,10 @@ function proposals(): Proposal[] {
 function insights(): Insight[] {
   return [
     { level: "critical", title: "SSH brute force from CHINANET /16 is ongoing", detail: "61.177.172.140 made 204 failed logins in the last hour. 218.92.0.112 in the same network is already banned. Proposal #42 is pending.", action: "sudo netwatch approve 42" },
-    { level: "warn", title: "Mode is observe: banned sources are not dropped", detail: "3 active bans matched 52,152 packets that were counted but allowed through. Switch to enforce to drop them in XDP.", action: "sudo netwatch mode enforce" },
+    { level: "warn", title: "4 proposed action(s) waiting for approval", detail: "Rules and the LLM propose; nothing is applied in observe mode until you approve.", action: "netwatch proposals" },
     { level: "warn", title: "Redis and Docker ports are being probed", detail: "6 sources touched 6379/2375 in the last 24h. Neither is listening, but confirm the firewall blocks them on every interface.", action: null },
     { level: "info", title: "Cloudflare traffic allowlisted", detail: "2 Cloudflare edge IPs account for 91% of inbound bytes; they are excluded from scoring.", action: null },
-    { level: "info", title: "LLM budget at 41%", detail: "82,100 of 200,000 tokens used today across 14 runs.", action: "sudo netwatch llm status" },
+    { level: "info", title: "9 source(s) would be banned automatically in enforce mode", detail: "Set mode = \"enforce\" in the config once you trust the proposals.", action: "netwatch proposals" },
   ];
 }
 
@@ -472,7 +473,7 @@ function overview(): Overview {
   const last = s[s.length - 1];
   return {
     host: "edge-01",
-    version: "0.4.0",
+    version: pkg.version,
     interface: "eno1",
     attach_mode: "driver",
     mode: "observe",
@@ -480,7 +481,7 @@ function overview(): Overview {
     started_at: BOOT,
     now: t,
     rates: { pps: last.pps, bps: last.pps * 610 * 8, in_pps: last.in_pps, syn_pps: last.syn_pps, dropped_pps: last.dropped_pps },
-    totals: { packets: 41_822_390, bytes: 31_408_811_200, in_packets: 26_120_334, syn: 1_904_221, blocked: 52_152, dropped: 0, events_lost: 3 },
+    totals: { packets: 41_822_390, bytes: 31_408_811_200, in_packets: 26_120_334, syn: 1_904_221, blocked: 52_152, dropped: 51_906, events_lost: 3 },
     counts: { sources_tracked: 2_314, sources_active_10m: 187, flagged: 11, bans_active: 4, proposals_pending: 4, ssh_failed_1h: 1_488 },
     llm: llmStatus(),
     geo_db: true,

@@ -43,7 +43,7 @@ sudo netwatch update             # install it and restart the daemon
 sudo netwatch update --auto on   # install new releases daily
 ```
 
-`netwatch update` downloads the release archive for your machine and checks it against the release's `SHA256SUMS`. It also runs the new binary once before changing anything. Then it installs the archive with that release's own installer, which updates the systemd units or launchd jobs too. If the new daemon doesn't answer on the API with its version within a minute, the previous binary goes back in place and the error says why. The previous binary stays at `/usr/local/bin/netwatch.previous`.
+`netwatch update` downloads the release archive for your machine and checks it against the release's `SHA256SUMS`. It also runs the new binary once before changing anything. Then it installs the archive with that release's own installer, which updates the systemd units or launchd jobs too. If the new daemon doesn't answer on the API with its version within a minute, the previous binary goes back in place and the error says why. The previous binary stays at `/usr/local/bin/netwatch.previous`; `sudo netwatch uninstall` on macOS removes it with the rest. While an update runs, `--auto` and `uninstall` refuse with `another netwatch update is running`.
 
 `--auto on` runs `netwatch update` once a day: from the `netwatch-update.timer` systemd timer on Linux (`journalctl -u netwatch-update` shows what it did), and from the `dev.netwatch.update` launchd job on macOS (logging to `/var/log/netwatch.log`). `--auto off` stops it. Automatic updates are off by default. Release candidates (`v0.2.0-rc.1`) are never installed this way.
 

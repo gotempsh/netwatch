@@ -19,7 +19,8 @@ use crate::config::Config;
 
 pub const RELEASES: &str = "https://github.com/gotempsh/netwatch/releases";
 pub const BIN: &str = "/usr/local/bin/netwatch";
-const PREVIOUS: &str = "/usr/local/bin/netwatch.previous";
+/// The binary an update replaced, kept to go back to; uninstall removes it.
+pub const PREVIOUS: &str = "/usr/local/bin/netwatch.previous";
 /// How long the new daemon has to answer on the API with its version.
 const START_WAIT: Duration = Duration::from_secs(60);
 
@@ -182,12 +183,22 @@ impl Drop for TempDir {
 }
 
 /// One update at a time: the timer and a person can start one together.
-struct Lock {
+/// Turning automatic updates on or off and uninstalling take it too, because
+/// on macOS they stop the update job, and with it an update in progress.
+pub struct Lock {
     _file: std::fs::File,
 }
 
 impl Lock {
-    fn take(dir: &Path) -> anyhow::Result<Self> {
+    pub fn take(cfg: &Config) -> anyhow::Result<Self> {
+        Self::take_in(
+            cfg.db_path
+                .parent()
+                .unwrap_or(Path::new("/var/lib/netwatch")),
+        )
+    }
+
+    fn take_in(dir: &Path) -> anyhow::Result<Self> {
         use std::os::fd::AsRawFd as _;
         std::fs::create_dir_all(dir)?;
         let path = dir.join("update.lock");
@@ -350,6 +361,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     if let Some(auto) = auto {
         require_root(&format!("netwatch update --auto {auto}"))?;
+        let _lock = Lock::take(cfg)?;
         let on = auto == "on";
         set_auto(config, on)?;
         eprintln!("{}", auto_state(on));
@@ -375,11 +387,7 @@ pub async fn run(
 
     require_root("netwatch update")?;
     check_managed()?;
-    let _lock = Lock::take(
-        cfg.db_path
-            .parent()
-            .unwrap_or(Path::new("/var/lib/netwatch")),
-    )?;
+    let _lock = Lock::take(cfg)?;
     let dir = TempDir::new()?;
     let unpacked = fetch(RELEASES, &tag, asset, &dir.0).await?;
 
@@ -536,6 +544,27 @@ mod tests {
             a.starts_with(&format!("netwatch-{}-", std::env::consts::OS)),
             "{a}"
         );
+    }
+
+    #[test]
+    fn one_update_at_a_time() {
+        let dir = tempdir("lock");
+        let held = Lock::take_in(&dir).unwrap();
+        let e = Lock::take_in(&dir).err().expect("a second lock is refused");
+        assert_eq!(e.to_string(), "another netwatch update is running");
+        drop(held);
+        // Another test's child process can hold a copy of the descriptor for
+        // a moment between fork and exec; the lock is free once it execs.
+        let mut free = false;
+        for _ in 0..100 {
+            free = Lock::take_in(&dir).is_ok();
+            if free {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(free, "the lock is free again once released");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

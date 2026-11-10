@@ -173,16 +173,25 @@ pub fn install(config: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Everything install and update put in /usr/local/bin.
+fn installed_binaries() -> [&'static str; 2] {
+    [BIN, crate::update::PREVIOUS]
+}
+
 pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     require_root("uninstall")?;
+    let cfg = Config::load(config).unwrap_or_default();
+    // Booting out the update job would stop an update halfway through.
+    let _lock = crate::update::Lock::take(&cfg)?;
     for label in [LABEL, GEOIP_LABEL, UPDATE_LABEL] {
         let _ = launchctl(&["bootout", &format!("system/{label}")]);
         let _ = std::fs::remove_file(plist_path(label));
     }
     println!("stopped and removed {LABEL}");
-    let _ = std::fs::remove_file(BIN);
+    for bin in installed_binaries() {
+        let _ = std::fs::remove_file(bin);
+    }
     if purge {
-        let cfg = Config::load(config).unwrap_or_default();
         for dir in [
             cfg.db_path.parent(),
             config.parent(),
@@ -260,6 +269,17 @@ pub fn update_geoip(cfg: &Config) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uninstall_removes_the_binary_update_kept() {
+        assert_eq!(
+            installed_binaries(),
+            [
+                "/usr/local/bin/netwatch",
+                "/usr/local/bin/netwatch.previous"
+            ]
+        );
+    }
 
     #[test]
     fn plists_are_well_formed() {

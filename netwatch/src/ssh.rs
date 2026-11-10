@@ -14,9 +14,11 @@ use crate::{daemon::App, engine::SshEvent};
 /// Parses one log message. `unit` distinguishes sshd from tailscaled.
 pub fn parse(ts: i64, tailscale: bool, msg: &str) -> Option<SshEvent> {
     let w: Vec<&str> = msg.split_whitespace().collect();
+    // sshd ends the line with "from <ip> port <port>", and a username can be
+    // "from" or "port" too, so the last match is the right one.
     let after = |key: &str| {
         w.iter()
-            .position(|x| *x == key)
+            .rposition(|x| *x == key)
             .and_then(|i| w.get(i + 1))
             .copied()
     };
@@ -67,10 +69,10 @@ pub fn parse(ts: i64, tailscale: bool, msg: &str) -> Option<SshEvent> {
         // Invalid user bob from 1.2.3.4 port 5555
         ["Invalid", "user", rest @ ..] => {
             let addr = ip(after("from"))?;
-            let user = if rest.first() == Some(&"from") {
-                None
-            } else {
-                rest.first().copied()
+            // "Invalid user  from 1.2.3.4": no username, unless the user is "from".
+            let user = match rest {
+                ["from", a, ..] if a.parse::<IpAddr>().is_ok() => None,
+                _ => rest.first().copied(),
             };
             Some(ev("invalid_user", user, addr, None))
         }
@@ -247,6 +249,26 @@ mod tests {
         );
         let e = parse(1, false, "Invalid user  from 203.0.113.5 port 4242").unwrap();
         assert_eq!(e.user, None);
+        // Usernames that are also the words around the address.
+        for user in ["port", "from"] {
+            let e = parse(
+                1,
+                false,
+                &format!("Invalid user {user} from 203.0.113.5 port 4242"),
+            )
+            .unwrap();
+            assert_eq!(
+                (e.user.as_deref(), e.ip.to_string().as_str(), e.port),
+                (Some(user), "203.0.113.5", Some(4242))
+            );
+            let e = parse(
+                1,
+                false,
+                &format!("Failed password for invalid user {user} from 203.0.113.5 port 4242 ssh2"),
+            )
+            .unwrap();
+            assert_eq!((e.user.as_deref(), e.port), (Some(user), Some(4242)));
+        }
         let e = parse(
             1,
             false,

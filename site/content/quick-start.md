@@ -44,7 +44,7 @@ netwatch status
 
 ```shell
 netwatch sources --flagged       # the same list in the terminal
-netwatch ip 218.92.0.112         # everything about one address
+netwatch ip 192.0.2.12           # everything about one address
 ```
 
 ## 4. Approve a ban

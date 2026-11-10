@@ -287,6 +287,11 @@ pub async fn cloudflare_ranges() -> Vec<IpNet> {
         .collect()
 }
 
+/// How long a discovery command (`tailscale status`, `wg show`, ...) may take.
+/// Startup waits for the allowlist, so a CLI that hangs, such as Tailscale's
+/// when its daemon or app isn't running, must not hold it up.
+const RUN_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
     // The Mac App Store and standalone Tailscale apps keep their CLI inside the bundle.
     #[cfg(target_os = "macos")]
@@ -296,10 +301,75 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
         }
         _ => cmd,
     };
-    let out = crate::host::command(cmd).args(args).output().ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let mut c = crate::host::command(cmd);
+    c.args(args);
+    match run_with_timeout(c, RUN_TIMEOUT) {
+        Ok(out) => out,
+        Err(()) => {
+            log::warn!(
+                "`{cmd} {}` didn't answer within {}s, so its addresses aren't allowlisted until the next try in 10 minutes",
+                args.join(" "),
+                RUN_TIMEOUT.as_secs()
+            );
+            None
+        }
+    }
+}
+
+/// The command's stdout if it exits successfully, `Ok(None)` if it can't be
+/// started or fails, `Err(())` if it hasn't finished within `timeout`.
+/// "Finished" includes anything it started that still holds its stdout, such
+/// as the real CLI behind a wrapper script: the command runs in its own
+/// process group, and the whole group is killed at the deadline.
+fn run_with_timeout(mut c: std::process::Command, timeout: Duration) -> Result<Option<String>, ()> {
+    use std::{io::Read as _, os::unix::process::CommandExt as _, process::Stdio};
+    let Ok(mut child) = c
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+    else {
+        return Ok(None);
+    };
+    let group = child.id() as libc::pid_t;
+    let kill_group = || {
+        // SAFETY: kill has no memory-safety preconditions; the group is ours.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    };
+    // Read while waiting: a full pipe would stop a chatty command from exiting.
+    let mut stdout = child.stdout.take().expect("piped");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = tx.send(buf);
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20))
+            }
+            _ => {
+                kill_group();
+                let _ = child.wait();
+                return Err(());
+            }
+        }
+    };
+    // The output ends when the last process holding the pipe exits.
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    match rx.recv_timeout(left) {
+        Ok(out) => Ok(status
+            .success()
+            .then(|| String::from_utf8_lossy(&out).into_owned())),
+        Err(_) => {
+            kill_group();
+            Err(())
+        }
+    }
 }
 
 fn endpoint_ip(s: &str) -> Option<IpAddr> {
@@ -474,6 +544,73 @@ fn is_loopback_hex(addr: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::run_with_timeout;
+
+    fn sh(script: &str) -> std::process::Command {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[test]
+    fn a_hanging_command_is_cut_off() {
+        let start = std::time::Instant::now();
+        let r = run_with_timeout(sh("sleep 30"), std::time::Duration::from_millis(200));
+        assert_eq!(r, Err(()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_process_left_holding_the_output_is_cut_off_too() {
+        // The command exits at once, but what it started keeps stdout open.
+        let start = std::time::Instant::now();
+        let r = run_with_timeout(
+            sh("sleep 30 & echo hi"),
+            std::time::Duration::from_millis(500),
+        );
+        assert_eq!(r, Err(()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn what_a_timed_out_command_started_is_killed_too() {
+        // A wrapper without `exec`: the shell waits on a child that hangs.
+        let pidfile = std::env::temp_dir().join(format!("netwatch-rwt-{}", std::process::id()));
+        let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
+        let r = run_with_timeout(sh(&script), std::time::Duration::from_millis(500));
+        assert_eq!(r, Err(()));
+        let pid: libc::pid_t = std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        std::fs::remove_file(&pidfile).unwrap();
+        // Killed, then reaped by init: gone within a moment.
+        // SAFETY: signal 0 only checks that the process exists.
+        let gone = (0..100).any(|_| {
+            let alive = unsafe { libc::kill(pid, 0) } == 0;
+            if alive {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            !alive
+        });
+        assert!(gone, "the hung grandchild {pid} is still running");
+    }
+
+    #[test]
+    fn output_failure_and_missing_commands() {
+        let t = std::time::Duration::from_secs(10);
+        assert_eq!(run_with_timeout(sh("echo hi"), t), Ok(Some("hi\n".into())));
+        assert_eq!(run_with_timeout(sh("echo hi; exit 1"), t), Ok(None));
+        let missing = std::process::Command::new("/nonexistent/netwatch-test");
+        assert_eq!(run_with_timeout(missing, t), Ok(None));
+        // More than a pipe holds: read while waiting, or it never exits.
+        let big = run_with_timeout(sh("head -c 300000 /dev/zero | tr '\\0' a"), t)
+            .unwrap()
+            .unwrap();
+        assert_eq!(big.len(), 300000);
+    }
+
     use super::*;
 
     #[test]

@@ -296,17 +296,27 @@ mod tests {
         let u = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let uport = u.local_addr().unwrap().port();
         let me = std::process::id();
-        let socks = all_sockets();
-        let tcp = socks
-            .iter()
-            .find(|(s, _)| s.proto == PROTO_TCP && s.lport == port)
-            .expect("listener");
+        // A socket is listed once, under the first process holding it. Other
+        // tests fork, and a child holds copies of these sockets until it
+        // execs, so scan again until this process is the one listed.
+        let found = |socks: &[(ProcSock, u32)], proto, port| {
+            socks
+                .iter()
+                .find(|(s, _)| s.proto == proto && s.lport == port)
+                .cloned()
+        };
+        let mut socks = all_sockets();
+        for _ in 0..100 {
+            if found(&socks, PROTO_TCP, port).is_some_and(|(_, pid)| pid == me) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            socks = all_sockets();
+        }
+        let tcp = found(&socks, PROTO_TCP, port).expect("listener");
         assert!(tcp.0.listening());
         assert_eq!((tcp.1, tcp.0.local.to_string()), (me, "127.0.0.1".into()));
-        let udp = socks
-            .iter()
-            .find(|(s, _)| s.proto == PROTO_UDP && s.lport == uport)
-            .expect("udp");
+        let udp = found(&socks, PROTO_UDP, uport).expect("udp");
         assert!(udp.0.listening());
         let (name, exe) = describe(me).unwrap();
         assert!(!name.is_empty() && exe.is_some());

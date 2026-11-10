@@ -67,6 +67,8 @@ These are allowlisted in the kernel automatically:
 - Tailscale peers and DERP relays (`allow_tailscale_peers`);
 - Cloudflare's ranges, so a Cloudflare tunnel keeps working (`allow_cloudflare`).
 
+The peers come from `wg show` and `tailscale status`, read at startup and every 10 minutes. If Tailscale or WireGuard isn't running, there are no peers to add and netwatch starts anyway. A command that doesn't answer within 10 seconds is stopped, with a warning in the log, and tried again at the next refresh. There's no need to turn `allow_tailscale_peers` off on a machine where Tailscale is sometimes down.
+
 netwatch also refuses bans broader than /16 (IPv4) or /32 (IPv6) unless you pass `--force`. Add your own addresses with `sudo netwatch allow <ip-or-cidr>` or the `allowlist` setting.
 
 ## Behind NAT or a tunnel

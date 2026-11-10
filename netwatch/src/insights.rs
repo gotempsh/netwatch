@@ -160,6 +160,16 @@ fn cve_2026_98432_fix(release: &str) -> Option<KernelFix> {
     })
 }
 
+/// Where the daemon logs why the kernel refused the flow programs: the
+/// container's output, or the systemd unit's journal.
+fn flow_log_cmd() -> &'static str {
+    #[cfg(target_os = "linux")]
+    if crate::host::in_container() {
+        return "docker logs netwatch 2>&1 | grep 'flow program'";
+    }
+    "journalctl -u netwatch -b | grep 'flow program'"
+}
+
 fn add(
     out: &mut Vec<Insight>,
     level: &'static str,
@@ -533,7 +543,7 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
              and exploit detection have no data. Per-source counters, findings and bans still work. The daemon \
              log has the kernel's reason; please report it with the output of uname -r."
                 .into(),
-            Some("journalctl -u netwatch -b | grep 'flow program'".into()),
+            Some(flow_log_cmd().into()),
         );
     }
     if !e.geo.available() {

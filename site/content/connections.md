@@ -39,7 +39,8 @@ netwatch events --kind connect_failed           # failed outbound connects
 The kernel checks every eBPF program before it loads it, and older kernels are stricter. If it refuses the flow programs, netwatch keeps running without connection tracking: per-source counters, findings and bans still work, but Connections, DNS and exploit detection stay empty. `netwatch status` and the Overview then show the insight *Connection tracking is off*, `netwatch ifaces` lists no flows, and the daemon log has the kernel's reason:
 
 ```shell
-journalctl -u netwatch -b | grep 'flow program'
+journalctl -u netwatch -b | grep 'flow program'     # the systemd service
+docker logs netwatch 2>&1 | grep 'flow program'    # the container
 ```
 
 netwatch 0.1.3 and older hit this on older kernels such as Debian 12 (6.1) and Ubuntu 22.04 (5.15); `sudo netwatch update` fixes it. On a newer release, please [open an issue](https://github.com/gotempsh/netwatch/issues) with that output and `uname -r`.

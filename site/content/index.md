@@ -6,7 +6,7 @@ description: netwatch is a single-binary traffic monitor for Linux servers and m
 
 netwatch counts every packet in the kernel with eBPF/XDP and keeps a record of every connection, together with the process or container behind it. It flags port scans, brute force, floods and listed attackers, and proposes bans that you approve, or enforces them at XDP speed. You browse everything in a read-only web UI that listens only on `127.0.0.1`, or from the command line.
 
-![Overview: live rates, active bans, pending proposals and insights](/screenshots/overview.png "The Overview page. Screenshots in these docs use the UI's built-in demo data.")
+![Status: a verdict, what needs you with the command for each item, and who is knocking](/screenshots/status.png "The Status page. Screenshots in these docs use the UI's built-in demo data.")
 
 **[Try the live demo](/demo/)**: the same web UI on demo data, in your browser. Nothing to install and no server behind it.
 

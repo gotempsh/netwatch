@@ -17,7 +17,7 @@ It runs as root, so [Security and privacy](https://gotempsh.github.io/netwatch/s
 
 Optionally, it can use any OpenAI-compatible model. The model reviews the sources the rules can't settle, and turns plain-English ban policies into rules. It is designed for cheap models and small token budgets.
 
-![Overview: live rates, active bans, pending proposals, and insights with the command that fixes each one](docs/screenshots/overview.png)
+![Status: a verdict, what needs you with the command for each item, then who is knocking, who this host talks to and what the internet can reach](docs/screenshots/status.png)
 
 ```mermaid
 flowchart TB
@@ -45,13 +45,23 @@ flowchart TB
 
 ## A look around
 
+**Status.** The page that opens first says whether anything needs you. Each item gives what netwatch saw, a link to the evidence and the command that fixes it, and below them, who is knocking, who this host talks to and what the internet can reach.
+
+**Attack timeline.** The flagged sources active in the last 7 days, one lane each, with when each finding, proposal, ban and login happened.
+
+![Attack timeline: flagged sources by score, one lane each, with packets per hour, findings, proposals and bans](docs/screenshots/threats.png)
+
 **Sources.** Every address that sent traffic, scored 0–100, with what it did, its network, and whether it's banned, allowlisted or on a threat feed.
 
 ![Sources table sorted by score, with findings such as SSH brute force, port scan and threat feed](docs/screenshots/sources.png)
 
-**One source.** Why it scored what it did, which feeds list it, its ban and the command to lift it, and seven days of history.
+**One source.** What it did and where it stands: whether it got in, what its ban dropped, which feeds list it, seven days of history with its events, and the next command.
 
-![Source detail for an SSH brute-force address: findings, threat feeds, ban status and a 7-day chart](docs/screenshots/source-detail.png)
+![Source detail for an SSH brute-force address: banned and still trying, never got in, its 7 days of packets and the ports, connections and usernames it tried](docs/screenshots/source-detail.png)
+
+**Who talks to whom.** The host in the middle: who connects in and to which service, which program connects out and to whom. Failing connections are dashed red and say why.
+
+![Traffic map: inbound sources and the services they reach, outbound programs and their destinations, with failing connections dashed red](docs/screenshots/map.png)
 
 **Connections.** Every flow on the host with the process or container behind it, the name it was resolved from, and who it talks to most.
 
@@ -247,7 +257,7 @@ Open the UI through an SSH tunnel, since it never listens on a public address:
 ssh -L 9180:127.0.0.1:9180 user@server   # then browse http://127.0.0.1:9180
 ```
 
-The UI pages are: Overview, Connections, Interfaces, Listeners, DNS, Sources, Source detail, Alerts, SSH, Bans, Geo and Policy.
+The UI has five sections: Status; Threats (attack timeline, sources and each source's page, alerts, SSH logins, countries and networks); Traffic (the map, connections, destinations, DNS); Exposure (listening ports, interfaces and the sensor); and Bans (bans and proposals, policy and AI).
 
 Read-only commands talk to the same API and need no root:
 

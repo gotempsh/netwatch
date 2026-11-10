@@ -55,7 +55,7 @@ Insights turn the data into concrete advice, each with a command to run, for exa
 - "12 scanners from AS14061";
 - "this host talked to a listed IP".
 
-They're on the Overview page and in `netwatch status` and `netwatch insights`.
+They're on the Status page of the web UI, each with the command that acts on it, and in `netwatch status` and `netwatch insights`.
 
 ## Never ban what you depend on
 

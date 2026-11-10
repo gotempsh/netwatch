@@ -207,7 +207,7 @@ function layout(p, i, html, toc, bare = false) {
 <meta name="description" content="${esc(p.description)}">
 <meta property="og:title" content="${esc(p.title)}">
 <meta property="og:description" content="${esc(p.description)}">
-<meta property="og:image" content="${SITE_URL}/screenshots/overview-dark.png">
+<meta property="og:image" content="${SITE_URL}/screenshots/status-dark.png">
 <link rel="alternate" type="text/markdown" href="${mdHref(p.slug)}">
 <link rel="icon" href="${BASE}favicon.svg" type="image/svg+xml">
 <link rel="preload" href="${BASE}fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>

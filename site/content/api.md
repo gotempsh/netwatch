@@ -20,13 +20,15 @@ curl -s 'http://127.0.0.1:9180/api/sources?flagged=1&limit=10' | jq '.[].ip'
 | `/api/sources/{ip}` | one source in full: findings, feeds, ports, SSH, alerts, proposals, history | |
 | `/api/alerts` | findings over time | `since`, `ip`, `limit` |
 | `/api/ssh` | SSH events | `since`, `ip`, `limit` |
-| `/api/bans` | active bans | |
+| `/api/bans` | active bans; `matched` counts the packets that hit each ban, `dropped` the ones it dropped (0 when bans don't drop: `drop_banned = false`, or macOS without pf) | |
 | `/api/proposals` | pending proposals with the command that applies each | `status=all` (include decided ones), `ip`, `limit` |
+| `/api/timeline` | flagged sources active in the window, highest score first, each with its hourly packets and SYNs, its findings, proposals, ban and accepted SSH logins; `total` counts them all before `limit` | `window` (`24h` or `7d`, the default), `limit` (1–50, default 20) |
 | `/api/summary` | traffic by country, network, port and top sources | `window` |
 | `/api/events` | recent daemon events | `limit` |
 | `/api/policy` | your rules, the compiled rules and the built-in defaults | |
 | `/api/llm` | model settings, token use and recent runs | |
 | `/api/flows` | connections | `view` (`active`, `history`, `all`), `window`, `ip`, `port`, `process`, `dir`, `iface`, `proto`, `q`, `sort`, `limit` |
+| `/api/flows/graph` | the Traffic map: inbound connections grouped by who connected and the service they reached, outbound ones by program and destination, each column folded to nine boxes, with bytes and failures per line | `window` (`5m`, `1h` the default, `24h`) |
 | `/api/flows/summary` | flow counts, failed connects, bytes moved in the window (from `bytes_since`), top remotes, processes, services and countries | `window` |
 | `/api/destinations` | every address the host connected out to, one row per address | `window`, `scope` (`public`, `all`), `unnamed`, `q`, `sort`, `limit` |
 | `/api/interfaces` | interfaces, rates and attached programs | |

@@ -52,7 +52,7 @@ curl -s 'http://127.0.0.1:9180/api/flows?view=history&window=24h&process=nginx'
 curl -s http://127.0.0.1:9180/api/proposals
 ```
 
-Other endpoints: `/api/insights`, `/api/alerts`, `/api/ssh`, `/api/bans`, `/api/summary`, `/api/flows/summary`, `/api/destinations`, `/api/listeners`, `/api/dns`, `/api/conn_events`, `/api/interfaces`, `/api/policy`. From another machine, tunnel first: `ssh -L 9180:127.0.0.1:9180 user@server`.
+Other endpoints: `/api/insights`, `/api/alerts`, `/api/ssh`, `/api/bans`, `/api/summary`, `/api/timeline` (flagged sources with their hourly history and events), `/api/flows/summary`, `/api/flows/graph` (who connects to which service, which program connects where), `/api/destinations`, `/api/listeners`, `/api/dns`, `/api/conn_events`, `/api/interfaces`, `/api/policy`. From another machine, tunnel first: `ssh -L 9180:127.0.0.1:9180 user@server`.
 
 ## Read the results correctly
 

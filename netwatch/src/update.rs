@@ -260,15 +260,13 @@ fn tail(out: &std::process::Output, lines: usize) -> String {
 /// Refuses anything the installer didn't set up: a container, a build run
 /// from the source tree, a copy somewhere else.
 fn check_managed() -> anyhow::Result<()> {
-    let exe = std::env::current_exe()
-        .and_then(|p| p.canonicalize())
-        .unwrap_or_default();
+    let exe = std::env::current_exe().unwrap_or_default();
     if Path::new("/.dockerenv").exists() || std::env::var_os("container").is_some() {
         bail!(
             "netwatch runs in a container here; pull the new image instead: docker pull ghcr.io/gotempsh/netwatch"
         );
     }
-    if exe != Path::new(BIN) {
+    if !same_file(&exe, Path::new(BIN)) {
         bail!(
             "netwatch update replaces {BIN}, which the installer set up, but this is {}; run {BIN} update, or rebuild from source",
             exe.display()
@@ -285,6 +283,29 @@ fn check_managed() -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// Whether two paths are the same file. Comparing paths isn't enough: where
+/// /usr/local is a symlink (Fedora CoreOS and Silverblue point it at
+/// /var/usrlocal), the running binary's path resolves somewhere else.
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        _ => false,
+    }
+}
+
+/// The config the installed daemon runs with. On macOS that's the path in
+/// its launchd plist, which `install` may have been given with --config, so
+/// an update, its rollback and the daily job keep it. The Linux service
+/// always runs with the default path.
+pub fn installed_config(given: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let Some(path) = crate::macos::launchd::installed_config() {
+        return path;
+    }
+    given.to_path_buf()
 }
 
 /// The new release's own installer: it updates the binary and the service
@@ -353,12 +374,9 @@ fn require_root(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn run(
-    config: &Path,
-    cfg: &Config,
-    check: bool,
-    auto: Option<&str>,
-) -> anyhow::Result<()> {
+pub async fn run(given: &Path, check: bool, auto: Option<&str>) -> anyhow::Result<()> {
+    let config = &installed_config(given);
+    let cfg = &Config::load(config)?;
     if let Some(auto) = auto {
         require_root(&format!("netwatch update --auto {auto}"))?;
         let _lock = Lock::take(cfg)?;
@@ -544,6 +562,22 @@ mod tests {
             a.starts_with(&format!("netwatch-{}-", std::env::consts::OS)),
             "{a}"
         );
+    }
+
+    #[test]
+    fn the_same_file_through_a_symlinked_directory() {
+        let dir = tempdir("same");
+        let real = dir.join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("netwatch"), "x").unwrap();
+        std::fs::write(real.join("other"), "x").unwrap();
+        // Like /usr/local -> ../var/usrlocal.
+        std::os::unix::fs::symlink(&real, dir.join("link")).unwrap();
+        let resolved = real.join("netwatch").canonicalize().unwrap();
+        assert!(same_file(&resolved, &dir.join("link/netwatch")));
+        assert!(!same_file(&resolved, &dir.join("link/other")));
+        assert!(!same_file(&resolved, &dir.join("link/missing")));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

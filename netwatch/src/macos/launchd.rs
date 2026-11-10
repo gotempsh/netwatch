@@ -77,6 +77,26 @@ fn update_plist(config: &Path) -> String {
     )
 }
 
+/// The `--config` path in the installed daemon's plist.
+pub fn installed_config() -> Option<PathBuf> {
+    config_in_plist(&std::fs::read_to_string(plist_path(LABEL)).ok()?)
+}
+
+fn config_in_plist(plist: &str) -> Option<PathBuf> {
+    let strings: Vec<String> = plist
+        .split("<string>")
+        .skip(1)
+        .filter_map(|s| s.split_once("</string>"))
+        .map(|(v, _)| {
+            v.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+        })
+        .collect();
+    let i = strings.iter().position(|s| s == "--config")?;
+    strings.get(i + 1).map(PathBuf::from)
+}
+
 pub fn update_job_installed() -> bool {
     plist_path(UPDATE_LABEL).exists()
 }
@@ -180,6 +200,8 @@ fn installed_binaries() -> [&'static str; 2] {
 
 pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     require_root("uninstall")?;
+    // What the daemon runs with, which is where its data and lock live.
+    let config = &crate::update::installed_config(config);
     let cfg = Config::load(config).unwrap_or_default();
     // Booting out the update job would stop an update halfway through.
     let _lock = crate::update::Lock::take(&cfg)?;
@@ -269,6 +291,15 @@ pub fn update_geoip(cfg: &Config) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_config_path_back_from_the_plist() {
+        for path in ["/etc/netwatch/netwatch.toml", "/opt/a&b <x>/netwatch.toml"] {
+            let p = daemon_plist(Path::new(path));
+            assert_eq!(config_in_plist(&p), Some(PathBuf::from(path)));
+        }
+        assert_eq!(config_in_plist("<plist></plist>"), None);
+    }
 
     #[test]
     fn uninstall_removes_the_binary_update_kept() {

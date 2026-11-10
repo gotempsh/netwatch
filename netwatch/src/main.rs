@@ -332,9 +332,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Run => daemon::run(cfg).await?,
-        Cmd::Update { check, auto } => {
-            update::run(&cli.config, &cfg, check, auto.as_deref()).await?
-        }
+        Cmd::Update { check, auto } => update::run(&cli.config, check, auto.as_deref()).await?,
         Cmd::DefaultConfig | Cmd::Skill { .. } => unreachable!(),
         #[cfg(target_os = "macos")]
         Cmd::Install | Cmd::Uninstall { .. } | Cmd::UpdateGeoip => unreachable!(),

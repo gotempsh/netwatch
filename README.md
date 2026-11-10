@@ -1,6 +1,20 @@
 # netwatch
 
-netwatch is a single-binary traffic monitor for Linux servers. It is built on [aya](https://github.com/aya-rs/aya) eBPF/XDP. It also runs [on macOS](#macos), with /dev/bpf capture and pf instead of eBPF. It:
+netwatch is a single-binary traffic monitor for Linux servers and macOS: it shows every connection with the process behind it, flags attackers, and proposes bans that you approve.
+
+```shell
+curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
+```
+
+That installs a systemd service (a launchd daemon on macOS) in **observe** mode: it watches and proposes, and blocks nothing until you approve. It needs Linux 5.8 or newer on x86_64 or aarch64, or macOS. [Install](#install) covers Docker and building from source.
+
+![Overview: live rates, active bans, pending proposals, and insights with the command that fixes each one](docs/screenshots/overview.png)
+
+**[Try the live demo](https://gotempsh.github.io/netwatch/demo/)**, the web UI on demo data in your browser, nothing to install.
+
+[Documentation](https://gotempsh.github.io/netwatch/) · [Quick start](https://gotempsh.github.io/netwatch/quick-start/) · [AI agents](https://gotempsh.github.io/netwatch/agents/) · [Releases](https://github.com/gotempsh/netwatch/releases) · [Contributing](CONTRIBUTING.md)
+
+On Linux, netwatch is built on [aya](https://github.com/aya-rs/aya) eBPF/XDP. It also runs [on macOS](#macos), with /dev/bpf capture and pf instead of eBPF. It:
 
 - counts every packet on an interface inside the kernel;
 - records every connection on the host, Tailscale and Docker interfaces, with the process or container behind it, DNS names, TLS SNI, HTTP hosts and SSH banners;
@@ -11,13 +25,9 @@ netwatch is a single-binary traffic monitor for Linux servers. It is built on [a
 
 You browse the results in a read-only web UI that listens only on `127.0.0.1`.
 
-**Documentation: [gotempsh.github.io/netwatch](https://gotempsh.github.io/netwatch/)** · **[Try the live demo](https://gotempsh.github.io/netwatch/demo/)**, the web UI on demo data in your browser, nothing to install.
-
 It runs as root, so [Security and privacy](https://gotempsh.github.io/netwatch/security/) lists every outbound request it makes, what it stores and how to verify a release. [Compared to other tools](https://gotempsh.github.io/netwatch/comparison/) sets it next to fail2ban, CrowdSec, ntopng, Suricata, OpenSnitch and Little Snitch. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 Optionally, it can use any OpenAI-compatible model. The model reviews the sources the rules can't settle, and turns plain-English ban policies into rules. It is designed for cheap models and small token budgets.
-
-![Overview: live rates, active bans, pending proposals, and insights with the command that fixes each one](docs/screenshots/overview.png)
 
 ```mermaid
 flowchart TB
@@ -395,7 +405,7 @@ The model's suggestions become proposals, labelled `by llm`. With `auto_apply = 
 
 ## Slack notifications (optional)
 
-netwatch can post to a Slack [incoming webhook](https://api.slack.com/messaging/webhooks). It is outbound only: nothing in Slack can change netwatch, so approving a ban stays a CLI action.
+netwatch can post to a Slack [incoming webhook](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/). It is outbound only: nothing in Slack can change netwatch, so approving a ban stays a CLI action.
 
 ```toml
 [slack]
@@ -459,6 +469,8 @@ npm --prefix ui run dev          # UI against a local daemon on :9180
 The e2e test brings up a throwaway sshd on port 2222 as its own systemd unit, so a netwatch service already running on the host doesn't see the test's SSH failures.
 
 On macOS, `cargo test -p netwatch` needs no root: it includes the sensor's packet-level tests and reads this machine's sockets and interfaces.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) lists the checks CI runs, and how to write commits and pull requests.
 
 ## Notes
 

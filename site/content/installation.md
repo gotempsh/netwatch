@@ -73,6 +73,8 @@ systemctl status netwatch
 netwatch status
 ```
 
+`netwatch status` lists what needs attention first. If it says *Connection tracking is off*, the kernel refused the flow programs; [Connection tracking](/connections#when-the-kernel-refuses-the-programs) says what to do.
+
 XDP attaches in native driver mode when the NIC supports it, and falls back to generic mode otherwise. On some drivers (igb, ixgbe, …) attaching resets the link for about 3 seconds.
 
 ### Verify the download

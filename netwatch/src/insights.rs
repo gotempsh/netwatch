@@ -184,6 +184,7 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
         .unwrap()
         .proposals(true, None, 10_000)?
         .len();
+    let flows_ok = !app.cfg.track_flows || app.kernel.lock().unwrap().flows_ok;
     let e = app.engine.lock().unwrap();
     let cfg = &app.cfg;
     let hour = now - 3600;
@@ -521,6 +522,18 @@ pub fn compute(app: &App) -> anyhow::Result<Vec<Insight>> {
             format!("{} probe events were lost", e.global.events_lost),
             "The ring buffer filled up (a burst of new source/port pairs). Counters are still exact.".into(),
             None,
+        );
+    }
+    if !flows_ok {
+        add(
+            &mut out,
+            "warn",
+            "Connection tracking is off".into(),
+            "The kernel refused netwatch's flow programs, so Connections, DNS, the names behind remote addresses \
+             and exploit detection have no data. Per-source counters, findings and bans still work. The daemon \
+             log has the kernel's reason; please report it with the output of uname -r."
+                .into(),
+            Some("journalctl -u netwatch -b | grep 'flow program'".into()),
         );
     }
     if !e.geo.available() {

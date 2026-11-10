@@ -112,6 +112,8 @@ pub struct SshEventRow {
     pub ip: String,
     pub method: Option<String>,
     pub location: String,
+    /// The client's source port; tells apart connections logged in the same second.
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -405,7 +407,7 @@ impl Store {
              CREATE INDEX IF NOT EXISTS proposals_status ON proposals(status, created);
              CREATE TABLE IF NOT EXISTS ssh_events (
                 ts INTEGER NOT NULL, kind TEXT NOT NULL, user TEXT, ip TEXT NOT NULL, method TEXT,
-                location TEXT NOT NULL, UNIQUE (ts, kind, ip, user, method));
+                location TEXT NOT NULL, port INTEGER, UNIQUE (ts, kind, ip, user, method));
              CREATE INDEX IF NOT EXISTS ssh_events_ts ON ssh_events(ts);
              CREATE INDEX IF NOT EXISTS ssh_events_ip ON ssh_events(ip, ts);
              CREATE TABLE IF NOT EXISTS llm_runs (
@@ -446,6 +448,7 @@ impl Store {
             ("flows", "remote_process", "TEXT"),
             ("flows", "remote_container", "TEXT"),
             ("flows", "remote_unit", "TEXT"),
+            ("ssh_events", "port", "INTEGER"),
         ] {
             let has = conn
                 .prepare(&format!(
@@ -1285,12 +1288,13 @@ impl Store {
 
     /// Returns false when the event was already stored (journal replay after restart).
     pub fn add_ssh_event(&self, e: &SshEventRow) -> anyhow::Result<bool> {
-        // The UNIQUE key alone lets rows with no user or method in twice: NULLs never match.
+        // The UNIQUE key alone lets rows with no user or method in twice (NULLs
+        // never match), and the port keeps apart connections in the same second.
         Ok(self.conn.execute(
-            "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location)
-             SELECT ?1,?2,?3,?4,?5,?6 WHERE NOT EXISTS (SELECT 1 FROM ssh_events
-               WHERE ts=?1 AND kind=?2 AND ip=?4 AND user IS ?3 AND method IS ?5)",
-            params![e.ts, e.kind, e.user, e.ip, e.method, e.location],
+            "INSERT OR IGNORE INTO ssh_events (ts, kind, user, ip, method, location, port)
+             SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE NOT EXISTS (SELECT 1 FROM ssh_events
+               WHERE ts=?1 AND kind=?2 AND ip=?4 AND user IS ?3 AND method IS ?5 AND port IS ?7)",
+            params![e.ts, e.kind, e.user, e.ip, e.method, e.location, e.port],
         )? > 0)
     }
 
@@ -1301,7 +1305,7 @@ impl Store {
         limit: u32,
     ) -> anyhow::Result<Vec<SshEventRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT ts, kind, user, ip, method, location FROM ssh_events
+            "SELECT ts, kind, user, ip, method, location, port FROM ssh_events
              WHERE ts>=?1 AND (?2 IS NULL OR ip=?2) ORDER BY ts DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![since, ip, limit], |r| {
@@ -1312,6 +1316,7 @@ impl Store {
                 ip: r.get(3)?,
                 method: r.get(4)?,
                 location: r.get(5)?,
+                port: r.get(6)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -1732,25 +1737,28 @@ mod tests {
     #[test]
     fn replayed_ssh_lines_are_stored_once() {
         let s = Store::open(Path::new(":memory:")).unwrap();
-        let ev = |kind: &str, user: Option<&str>, method: Option<&str>| SshEventRow {
+        let ev = |kind: &str, user: Option<&str>, method: Option<&str>, port| SshEventRow {
             ts: 100,
             kind: kind.into(),
             user: user.map(str::to_string),
             ip: "203.0.113.9".into(),
             method: method.map(str::to_string),
             location: String::new(),
+            port: Some(port),
         };
         for e in [
-            ev("invalid_user", Some("admin"), None),
-            ev("invalid_user", None, None),
-            ev("failed", Some("root"), Some("password")),
+            ev("invalid_user", Some("admin"), None, 40001),
+            ev("invalid_user", None, None, 40002),
+            ev("failed", Some("root"), Some("password"), 40003),
         ] {
             assert!(s.add_ssh_event(&e).unwrap());
             assert!(!s.add_ssh_event(&e).unwrap());
         }
+        // Another connection in the same second.
         assert!(
-            s.add_ssh_event(&ev("invalid_user", Some("oracle"), None))
+            s.add_ssh_event(&ev("invalid_user", Some("admin"), None, 40004))
                 .unwrap()
         );
+        assert_eq!(s.ssh_events(0, None, 10).unwrap().len(), 4);
     }
 }

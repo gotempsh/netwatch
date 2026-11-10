@@ -988,6 +988,7 @@ impl App {
             ip: ev.ip.to_string(),
             method: ev.method.clone(),
             location,
+            port: ev.port,
         };
         let known = {
             let store = self.store.lock().unwrap();

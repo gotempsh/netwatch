@@ -1205,6 +1205,7 @@ mod tests {
             ip: "198.51.100.66".into(),
             method: Some("password".into()),
             location: "CN AS4134".into(),
+            port: None,
         });
         o.conn_events(&[ConnEventRow {
             kind: "listen".into(),

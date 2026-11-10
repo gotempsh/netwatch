@@ -74,7 +74,7 @@ Conditions in `when` (all must hold):
 | `cidrs` | address ranges |
 | `ports_any` | touched any of these local ports |
 | `in_feed` | listed on a threat feed |
-| `min_ssh_failed` | at least this many failed SSH logins |
+| `min_ssh_failed` | at least this many failed SSH logins (wrong passwords and nonexistent users) |
 
 Actions are `ban`, `review`, `ignore` (no proposals, still shown in the UI) and `never_ban`. `never_ban` always beats everything else, including the model's suggestions.
 

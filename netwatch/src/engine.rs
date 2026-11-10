@@ -135,6 +135,9 @@ impl PortState {
 pub struct SshTally {
     pub failed: VecDeque<i64>,
     pub invalid_users: BTreeSet<String>,
+    /// Connections (source port, user) whose "Invalid user" line was counted
+    /// and whose first failed password hasn't been seen yet.
+    pub invalid_conns: VecDeque<(u16, Option<String>)>,
     pub failed_total: u64,
     pub accepted: u64,
     pub last_event: i64,
@@ -267,6 +270,8 @@ pub struct SshEvent {
     pub user: Option<String>,
     pub ip: IpAddr,
     pub method: Option<String>,
+    /// The client's source port, which tells one connection's lines apart.
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -637,7 +642,26 @@ impl Engine {
         let public = is_public(ev.ip);
         match ev.kind {
             "failed" | "invalid_user" => {
-                if ev.kind == "failed" {
+                // A server that only takes keys logs "Invalid user" and never
+                // "Failed password", so that line is the failed attempt. With
+                // passwords, it comes just before the connection's first
+                // "Failed password for invalid user", the same attempt; the
+                // source port pairs the two. Each later password counts.
+                let conn = ev.port.map(|p| (p, ev.user.clone()));
+                let counted = if ev.kind == "invalid_user" {
+                    if let Some(c) = conn {
+                        st.ssh.invalid_conns.push_back(c);
+                        if st.ssh.invalid_conns.len() > 64 {
+                            st.ssh.invalid_conns.pop_front();
+                        }
+                    }
+                    true
+                } else {
+                    let pending =
+                        conn.and_then(|c| st.ssh.invalid_conns.iter().position(|x| *x == c));
+                    pending.map(|i| st.ssh.invalid_conns.remove(i)).is_none()
+                };
+                if counted {
                     st.ssh.failed.push_back(ev.ts);
                     st.ssh.failed_total += 1;
                     while st.ssh.failed.len() > 1000 {
@@ -1514,5 +1538,67 @@ mod tests {
         }
         e.observe_probes(hits(SCANNER, &CLIENT_PORTS, 1), now_unix());
         assert_eq!(kinds(&mut e, SCANNER), ["closed_probe"]);
+    }
+
+    /// sshd's log of one brute-force run, as journald hands it over.
+    fn ssh_log(e: &mut Engine, lines: &[&str]) -> u64 {
+        let now = now_unix();
+        for l in lines {
+            let ev = crate::ssh::parse(now, false, l).unwrap();
+            e.observe_ssh(&ev, &[]);
+        }
+        let ip: IpAddr = SCANNER.parse().unwrap();
+        e.states[&ip].ssh_failed_within(now, 3600)
+    }
+
+    #[test]
+    fn counts_failed_ssh_attempts_on_servers_without_passwords() {
+        // Keys only: sshd never logs "Failed password", one "Invalid user" per try.
+        let mut e = engine();
+        let n = ssh_log(
+            &mut e,
+            &[
+                "Invalid user admin from 203.0.113.9 port 40001",
+                "Invalid user oracle from 203.0.113.9 port 40002",
+                "Connection closed by authenticating user root 203.0.113.9 port 40003 [preauth]",
+            ],
+        );
+        assert_eq!(n, 2);
+
+        // Passwords: each connection logs "Invalid user" once, then a line per
+        // password it tried; existing users only get the "Failed password" lines.
+        let mut e = engine();
+        let n = ssh_log(
+            &mut e,
+            &[
+                "Invalid user admin from 203.0.113.9 port 40001",
+                "Invalid user admin from 203.0.113.9 port 40004",
+                "Failed password for invalid user admin from 203.0.113.9 port 40001 ssh2",
+                "Failed password for invalid user admin from 203.0.113.9 port 40004 ssh2",
+                "Failed password for invalid user admin from 203.0.113.9 port 40001 ssh2",
+                "Failed password for invalid user admin from 203.0.113.9 port 40001 ssh2",
+                "Failed password for root from 203.0.113.9 port 40002 ssh2",
+                "Failed password for root from 203.0.113.9 port 40002 ssh2",
+                // Gave up before trying a password.
+                "Invalid user guest from 203.0.113.9 port 40005",
+            ],
+        );
+        assert_eq!(n, 7);
+
+        // A long username list keeps counting one per password.
+        let mut e = engine();
+        let lines: Vec<String> = (0..300)
+            .flat_map(|i| {
+                let port = 20000 + i;
+                [
+                    format!("Invalid user u{i} from 203.0.113.9 port {port}"),
+                    format!(
+                        "Failed password for invalid user u{i} from 203.0.113.9 port {port} ssh2"
+                    ),
+                ]
+            })
+            .collect();
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        assert_eq!(ssh_log(&mut e, &lines), 300);
     }
 }

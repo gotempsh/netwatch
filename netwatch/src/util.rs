@@ -86,6 +86,12 @@ pub fn neighbourhood(ip: IpAddr) -> IpNet {
         .unwrap_or_else(|_| IpNet::from(ip))
 }
 
+/// Inside a container, where the image is replaced and started with Docker,
+/// not by netwatch.
+pub fn in_container() -> bool {
+    std::path::Path::new("/.dockerenv").exists() || std::env::var_os("container").is_some()
+}
+
 pub fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -104,14 +104,115 @@ pub fn update_job_installed() -> bool {
 /// `netwatch update --auto on|off`: the daily `netwatch update` job.
 pub fn set_update_job(config: &Path, on: bool) -> anyhow::Result<()> {
     let path = plist_path(UPDATE_LABEL);
-    let _ = launchctl(&["bootout", &format!("system/{UPDATE_LABEL}")]);
+    unload(UPDATE_LABEL);
     if !on {
         let _ = std::fs::remove_file(&path);
         return Ok(());
     }
     std::fs::write(&path, update_plist(config))?;
     std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o644))?;
-    launchctl(&["bootstrap", "system", &path.to_string_lossy()])
+    load(UPDATE_LABEL)
+}
+
+/// Whether launchd has the job registered.
+fn loaded(label: &str) -> bool {
+    Command::new("/bin/launchctl")
+        .args(["print", &format!("system/{label}")])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Unregisters a job and waits until launchd lets go of it. bootout can return
+/// while the job is still shutting down, and a bootstrap in that window fails
+/// with "5: Input/output error".
+fn unload(label: &str) {
+    let _ = launchctl(&["bootout", &format!("system/{label}")]);
+    for _ in 0..50 {
+        if !loaded(label) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// Registers a job from its plist, which starts it (RunAtLoad).
+fn load(label: &str) -> anyhow::Result<()> {
+    let target = format!("system/{label}");
+    // A disabled record (from `launchctl disable`) makes bootstrap fail too.
+    let _ = launchctl(&["enable", &target]);
+    let path = plist_path(label);
+    retrying(
+        || launchctl(&["bootstrap", "system", &path.to_string_lossy()]),
+        || unload(label),
+    )
+    .with_context(|| {
+        format!("launchd didn't start {label}; see `sudo launchctl print {target}` and {LOG}")
+    })
+}
+
+/// Tries `bootstrap` three times, clearing what launchd still holds between
+/// tries: an older registration that bootout hadn't finished removing.
+fn retrying(
+    mut bootstrap: impl FnMut() -> anyhow::Result<()>,
+    mut unload: impl FnMut(),
+) -> anyhow::Result<()> {
+    let mut tries = 0;
+    loop {
+        match bootstrap() {
+            Ok(()) => return Ok(()),
+            Err(e) if tries == 2 => return Err(e),
+            Err(_) => {
+                tries += 1;
+                unload();
+                std::thread::sleep(std::time::Duration::from_millis(500 * tries));
+            }
+        }
+    }
+}
+
+fn require_installed() -> anyhow::Result<()> {
+    if !plist_path(LABEL).exists() {
+        bail!(
+            "{} is missing, so netwatch isn't installed as a daemon; install it with: sudo netwatch install",
+            plist_path(LABEL).display()
+        );
+    }
+    Ok(())
+}
+
+/// `netwatch start`: registers the daemon if launchd doesn't have it, or
+/// starts it if it does. Does nothing to a running daemon.
+pub fn start() -> anyhow::Result<()> {
+    require_root("start")?;
+    require_installed()?;
+    if loaded(LABEL) {
+        launchctl(&["kickstart", &format!("system/{LABEL}")])
+    } else {
+        load(LABEL)
+    }
+}
+
+/// `netwatch restart`: stops the daemon and starts it again.
+pub fn restart() -> anyhow::Result<()> {
+    require_root("restart")?;
+    require_installed()?;
+    if loaded(LABEL) {
+        launchctl(&["kickstart", "-k", &format!("system/{LABEL}")])
+    } else {
+        load(LABEL)
+    }
+}
+
+/// `netwatch stop`: unregisters the daemon, so launchd doesn't restart it
+/// until `netwatch start` or the next boot.
+pub fn stop() -> anyhow::Result<()> {
+    require_root("stop")?;
+    require_installed()?;
+    unload(LABEL);
+    if loaded(LABEL) {
+        bail!("launchd still has {LABEL} after bootout; see `sudo launchctl print system/{LABEL}`");
+    }
+    Ok(())
 }
 
 fn launchctl(args: &[&str]) -> anyhow::Result<()> {
@@ -183,8 +284,8 @@ pub fn install(config: &Path) -> anyhow::Result<()> {
         let path = plist_path(label);
         std::fs::write(&path, body)?;
         std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o644))?;
-        let _ = launchctl(&["bootout", &format!("system/{label}")]);
-        launchctl(&["bootstrap", "system", &path.to_string_lossy()])?;
+        unload(label);
+        load(label)?;
     }
     println!(
         "started {LABEL} ({} on {}, mode {:?}); logs in {LOG}",
@@ -212,7 +313,7 @@ pub fn uninstall(config: &Path, purge: bool) -> anyhow::Result<()> {
     // the plist.
     let cfg = Config::load(config).unwrap_or_default();
     for label in [LABEL, GEOIP_LABEL, UPDATE_LABEL] {
-        let _ = launchctl(&["bootout", &format!("system/{label}")]);
+        unload(label);
         let _ = std::fs::remove_file(plist_path(label));
     }
     println!("stopped and removed {LABEL}");
@@ -374,5 +475,38 @@ mod tests {
         };
         assert_eq!(months(d("2026-11-05T00:00:00Z")), ["2026-11", "2026-10"]);
         assert_eq!(months(d("2027-01-02T00:00:00Z")), ["2027-01", "2026-12"]);
+    }
+
+    #[test]
+    fn bootstrap_is_retried_after_clearing_the_old_registration() {
+        // Fails twice ("5: Input/output error" while the old job shuts down), then loads.
+        let (mut calls, mut unloads) = (0, 0);
+        let r = retrying(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    bail!("Bootstrap failed: 5: Input/output error")
+                } else {
+                    Ok(())
+                }
+            },
+            || unloads += 1,
+        );
+        assert!(r.is_ok());
+        assert_eq!((calls, unloads), (3, 2));
+
+        let (mut calls, mut unloads) = (0, 0);
+        let r = retrying(
+            || {
+                calls += 1;
+                bail!("Bootstrap failed: 5: Input/output error")
+            },
+            || unloads += 1,
+        );
+        assert_eq!(
+            r.unwrap_err().to_string(),
+            "Bootstrap failed: 5: Input/output error"
+        );
+        assert_eq!((calls, unloads), (3, 2), "gives up after three tries");
     }
 }

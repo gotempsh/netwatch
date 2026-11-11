@@ -100,6 +100,9 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 
 | Command | |
 |---|---|
+| `netwatch start` | **root**: start the installed daemon if it isn't running, then wait until it answers; shows its last log lines if it doesn't |
+| `netwatch stop` | **root**: stop the daemon until `netwatch start` or the next boot; its bans are lifted while it is stopped |
+| `netwatch restart` | **root**: restart the daemon, for example after editing the config; refuses a config that doesn't parse |
 | `netwatch run` | **root**: run the daemon in the foreground (what the service runs) |
 | `netwatch install` | **root**, macOS: install this binary as a launchd daemon and start it |
 | `netwatch uninstall [--purge]` | **root**, macOS: stop and remove the daemon; `--purge` also deletes the config, database and log |
@@ -109,7 +112,7 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 | `netwatch update --auto on\|off` | **root**: install new releases daily, or stop |
 | `netwatch default-config` | print the default configuration |
 
-On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
+`start`, `stop` and `restart` drive the systemd service on Linux and the launchd daemon `dev.netwatch` on macOS. In the container, use `docker start`, `stop` and `restart` instead. On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
 
 ## Agent skill
 

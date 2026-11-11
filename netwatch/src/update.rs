@@ -261,7 +261,7 @@ fn tail(out: &std::process::Output, lines: usize) -> String {
 /// from the source tree, a copy somewhere else.
 fn check_managed() -> anyhow::Result<()> {
     let exe = std::env::current_exe().unwrap_or_default();
-    if Path::new("/.dockerenv").exists() || std::env::var_os("container").is_some() {
+    if crate::util::in_container() {
         bail!(
             "netwatch runs in a container here; pull the new image instead: docker pull ghcr.io/gotempsh/netwatch"
         );

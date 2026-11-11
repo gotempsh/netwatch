@@ -1166,6 +1166,12 @@ impl App {
             let Ok(target) = parse_target(&a.target) else {
                 continue;
             };
+            if !crate::llm::in_digest(&target, &digest) {
+                log::warn!(
+                    "llm named {target}, which isn't among the sources it was given; ignored"
+                );
+                continue;
+            }
             if !is_public(target.addr()) || self.allowlisted(&target).is_some() {
                 continue;
             }

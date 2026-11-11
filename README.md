@@ -403,7 +403,16 @@ model = "google/gemini-2.5-flash-lite"        # any cheap model is fine
 daily_token_budget = 200000
 ```
 
-Put the key in `/etc/netwatch/env` (mode 0600) as `NETWATCH_LLM_API_KEY=...`, not in the TOML.
+Put the key in `/etc/netwatch/env` (mode 0600) as `NETWATCH_LLM_API_KEY=...`, not in the TOML. A local server needs no key.
+
+`sudo netwatch llm check` sends the daemon's analysis prompt with a sample attacker and a harmless probe, and says whether the model judged them right, or what's wrong with the endpoint:
+
+```console
+$ sudo netwatch llm check
+qwen3:1.7b at http://127.0.0.1:11434/v1 works for netwatch: it answered the analysis prompt in 1.8 s (527 tokens) and proposed ban 198.51.100.66/32 24h (confidence 0.90)
+```
+
+For a local model, `ollama pull qwen3:1.7b` and set `base_url = "http://127.0.0.1:11434/v1"`, `model = "qwen3:1.7b"`. qwen3:1.7b, lfm3:1.7b, qwen2.5:3b, granite4.2:3b and llama3.2:3b pass the check; llama3.2:1b and gemma3:1b don't. See [AI analysis](https://gotempsh.github.io/netwatch/ai-analysis/) for the table.
 
 How it keeps costs down:
 
@@ -411,7 +420,8 @@ How it keeps costs down:
 - **Compact input.** Each source is one line (`ip cc asn score findings ports ssh`), not raw packets.
 - **No new data, no call.** If the digest hasn't changed since the last run, the call is skipped.
 - **Hard caps.** At most 6 calls per hour, plus a daily token budget, with temperature 0, JSON output and a small `max_output_tokens`. A typical run is about 1–2k tokens.
-- **Compatibility.** If an endpoint rejects `response_format`, `temperature` or `max_tokens`, netwatch notices and stops sending that option.
+- **Compatibility.** netwatch asks for a JSON schema and falls back to plain JSON mode. If an endpoint rejects `response_format`, `reasoning_effort`, `temperature` or `max_tokens`, netwatch notices and stops sending that option.
+- **Only what it was sent.** A suggestion for an address that wasn't among the sources sent is ignored.
 
 The model's suggestions become proposals, labelled `by llm`. With `auto_apply = true` and enforce mode, suggestions at or above `min_confidence` (default 0.9) are applied. The allowlist and `never_ban` rules still apply to them. Run `sudo netwatch analyze` to trigger a run now.
 

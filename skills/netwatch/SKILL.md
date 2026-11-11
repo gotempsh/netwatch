@@ -38,6 +38,7 @@ Reading needs no privileges. Every change (ban, unban, allow, approve, reject, p
 | DNS lookups and failures | `netwatch dns --top`, `netwatch dns --rcode NXDOMAIN` |
 | Active bans, pending proposals | `netwatch bans`, `netwatch proposals` |
 | Ban policy in force | `netwatch policy show` |
+| Does the model under `[llm]` work? | `sudo netwatch llm check` (one request to the endpoint; sudo only to read the key from `/etc/netwatch/env`) |
 
 `--window` takes `5m`, `15m`, `1h`, `6h`, `24h`, `7d` or `30d`. `-q` searches IPs, DNS names, TLS SNI, processes, ASN and country.
 

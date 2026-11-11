@@ -93,6 +93,7 @@ TTLs print the way `--ttl` takes them (`7d`, `1d 30m`); countdowns and uptimes k
 | `netwatch policy set <text> [--dry-run]` | **root**: plain-English policy (compiled by the model) or rules as JSON; `--dry-run` shows the rules without installing them |
 | `netwatch policy clear` | **root**: remove your policy; the built-in rules remain |
 | `netwatch analyze` | **root**: run a model analysis pass now |
+| `netwatch llm check` | send the analysis prompt with a sample attack to the model under `[llm]` and check its answer; root when the key is in `/etc/netwatch/env` |
 
 See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 

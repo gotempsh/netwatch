@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, anyhow, bail};
+use anyhow::{Context as _, bail};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -36,7 +36,11 @@ pub struct Llm {
 #[derive(Default, Clone, Copy)]
 struct Quirks {
     no_temperature: bool,
+    /// `response_format: json_schema` rejected; fall back to json_object.
+    no_json_schema: bool,
     no_json_mode: bool,
+    /// `reasoning_effort` rejected.
+    no_reasoning_effort: bool,
     max_completion_tokens: bool,
 }
 
@@ -68,8 +72,8 @@ suspicious inbound sources seen by eBPF/XDP packet counters and SSH logs, and pr
 - A successful SSH login after failures or from a new location is \"review\", never \"ignore\".
 - confidence: 0-1, how sure you are the action is right. Don't ban on weak evidence.
 - The operator policy overrides these guidelines.
-Reply with JSON only: {\"summary\":\"<=25 words\",\"actions\":[{\"target\":\"203.0.113.7\",\"action\":\"ban\",\
-\"ttl\":\"24h\",\"confidence\":0.9,\"reason\":\"<=15 words\"}]}";
+Reply with JSON only: {\"summary\":\"<=25 words\",\"actions\":[{\"target\":\"<an IP or /24 from the digest>\",\
+\"action\":\"ban\",\"ttl\":\"24h\",\"confidence\":0.9,\"reason\":\"<=15 words\"}]}. One action per source that needs one.";
 
 impl Llm {
     pub fn new(cfg: &LlmConfig) -> anyhow::Result<Self> {
@@ -99,11 +103,25 @@ impl Llm {
         user: &str,
         max_tokens: u32,
     ) -> anyhow::Result<(String, Usage)> {
+        self.chat_with(system, user, max_tokens, None, false).await
+    }
+
+    /// Like `chat`, constraining the reply to a JSON schema where the endpoint
+    /// supports structured outputs (OpenAI, Ollama, llama.cpp, vLLM), and with
+    /// `no_reasoning` asking reasoning models to answer without thinking first.
+    pub async fn chat_with(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        schema: Option<&Value>,
+        no_reasoning: bool,
+    ) -> anyhow::Result<(String, Usage)> {
         let url = format!(
             "{}/chat/completions",
             self.cfg.base_url.trim_end_matches('/')
         );
-        for _ in 0..4 {
+        for _ in 0..6 {
             let q = *self.quirks.lock().unwrap();
             let mut body = json!({
                 "model": self.cfg.model,
@@ -120,7 +138,15 @@ impl Llm {
             if !q.no_temperature {
                 body["temperature"] = json!(0);
             }
-            if self.cfg.json_mode && !q.no_json_mode {
+            if no_reasoning && !q.no_reasoning_effort {
+                body["reasoning_effort"] = json!("none");
+            }
+            if let Some(schema) = schema.filter(|_| !q.no_json_schema) {
+                body["response_format"] = json!({
+                    "type": "json_schema",
+                    "json_schema": {"name": "reply", "strict": true, "schema": schema},
+                });
+            } else if self.cfg.json_mode && !q.no_json_mode {
                 body["response_format"] = json!({"type": "json_object"});
             }
             let mut req = self.http.post(&url).json(&body);
@@ -130,18 +156,33 @@ impl Llm {
             let resp = req.send().await.context("LLM request failed")?;
             let status = resp.status();
             let text = resp.text().await?;
-            if status.as_u16() == 400 || status.as_u16() == 422 {
+            if matches!(status.as_u16(), 400 | 422 | 501) {
                 let mut q = self.quirks.lock().unwrap();
                 let lower = text.to_lowercase();
+                // Ollama, for models without constrained decoding.
+                let no_structured = lower.contains("structured output");
                 if lower.contains("max_tokens") && !q.max_completion_tokens {
                     q.max_completion_tokens = true;
+                    continue;
+                }
+                if lower.contains("reasoning") && no_reasoning && !q.no_reasoning_effort {
+                    q.no_reasoning_effort = true;
                     continue;
                 }
                 if lower.contains("temperature") && !q.no_temperature {
                     q.no_temperature = true;
                     continue;
                 }
-                if lower.contains("response_format") && !q.no_json_mode {
+                if schema.is_some()
+                    && !q.no_json_schema
+                    && (no_structured
+                        || lower.contains("json_schema")
+                        || lower.contains("response_format"))
+                {
+                    q.no_json_schema = true;
+                    continue;
+                }
+                if (no_structured || lower.contains("response_format")) && !q.no_json_mode {
                     q.no_json_mode = true;
                     continue;
                 }
@@ -153,10 +194,21 @@ impl Llm {
                 );
             }
             let v: Value = serde_json::from_str(&text).context("LLM response is not JSON")?;
-            let content = v["choices"][0]["message"]["content"]
-                .as_str()
-                .ok_or_else(|| anyhow!("LLM response has no message content"))?
-                .to_string();
+            let msg = &v["choices"][0]["message"];
+            let content = msg["content"].as_str().unwrap_or("").to_string();
+            if content.trim().is_empty() {
+                if msg["reasoning"].as_str().is_some_and(|r| !r.is_empty())
+                    || msg["reasoning_content"]
+                        .as_str()
+                        .is_some_and(|r| !r.is_empty())
+                {
+                    bail!(
+                        "the model used its {max_tokens} output tokens reasoning and gave no answer; \
+                         use a model without reasoning, or one that honours reasoning_effort"
+                    );
+                }
+                bail!("LLM response has no message content");
+            }
             let usage = Usage {
                 prompt_tokens: v["usage"]["prompt_tokens"].as_i64().unwrap_or(0),
                 completion_tokens: v["usage"]["completion_tokens"].as_i64().unwrap_or(0),
@@ -181,7 +233,13 @@ impl Llm {
 
     pub async fn analyze(&self, context: &str) -> anyhow::Result<(Analysis, Usage)> {
         let (content, usage) = self
-            .chat(ANALYZE_SYSTEM, context, self.cfg.max_output_tokens)
+            .chat_with(
+                ANALYZE_SYSTEM,
+                context,
+                self.cfg.max_output_tokens,
+                Some(&analysis_schema()),
+                true,
+            )
             .await?;
         let analysis: Analysis =
             serde_json::from_str(extract_json(&content)).with_context(|| {
@@ -245,8 +303,53 @@ Reply with JSON only.",
     }
 }
 
-/// Strips markdown fences or prose around the JSON object.
-fn extract_json(s: &str) -> &str {
+/// Whether a proposed target is one of the digest's sources, or a network
+/// holding one. Models sometimes name addresses they weren't given.
+pub fn in_digest(target: &ipnet::IpNet, digest: &str) -> bool {
+    digest
+        .lines()
+        .filter_map(|l| {
+            l.split_whitespace()
+                .next()?
+                .parse::<std::net::IpAddr>()
+                .ok()
+        })
+        .any(|ip| target.contains(&ip))
+}
+
+/// The reply `analyze` asks for, enforced where the endpoint supports
+/// structured outputs, so small models can't drift from it.
+fn analysis_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "actions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string"},
+                        "action": {"type": "string", "enum": ["ban", "review", "ignore"]},
+                        "ttl": {"type": "string"},
+                        "confidence": {"type": "number"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["target", "action", "ttl", "confidence", "reason"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["summary", "actions"],
+        "additionalProperties": false,
+    })
+}
+
+/// Strips reasoning (`<think>…</think>`), markdown fences or prose around the JSON object.
+pub fn extract_json(s: &str) -> &str {
+    let s = s
+        .rfind("</think>")
+        .map_or(s, |i| &s[i + "</think>".len()..]);
     match (s.find('{'), s.rfind('}')) {
         (Some(a), Some(b)) if b > a => &s[a..=b],
         _ => s,
@@ -262,9 +365,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_targets_from_the_digest_count() {
+        let digest =
+            "198.51.100.66 NL AS64500 Example score=92\n2001:db8::7 US AS64501 Example score=50";
+        let t = |s: &str| crate::util::parse_target(s).unwrap();
+        assert!(in_digest(&t("198.51.100.66"), digest));
+        assert!(in_digest(&t("198.51.100.0/24"), digest));
+        assert!(in_digest(&t("2001:db8::/64"), digest));
+        assert!(!in_digest(&t("203.0.113.7"), digest));
+        assert!(!in_digest(&t("198.51.101.0/24"), digest));
+    }
+
+    #[test]
+    fn the_example_reply_names_no_address() {
+        // Small models copied a concrete example address as a ban target.
+        let example = &ANALYZE_SYSTEM[ANALYZE_SYSTEM.find("Reply with JSON").unwrap()..];
+        assert!(!example.contains("203.0.113"), "{example}");
+        assert!(example.contains("<an IP or /24 from the digest>"));
+        let schema = analysis_schema();
+        let fields = schema["properties"]["actions"]["items"]["required"]
+            .as_array()
+            .unwrap();
+        assert_eq!(fields.len(), 5);
+    }
+
+    #[test]
     fn extracts_fenced_json() {
         let s = "```json\n{\"summary\":\"x\",\"actions\":[]}\n```";
         let a: Analysis = serde_json::from_str(extract_json(s)).unwrap();
         assert_eq!(a.summary, "x");
+        let t = "<think>maybe {\"a\":1}?</think>\n{\"summary\":\"y\",\"actions\":[]}";
+        let a: Analysis = serde_json::from_str(extract_json(t)).unwrap();
+        assert_eq!(a.summary, "y");
     }
 }

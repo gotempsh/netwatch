@@ -13,6 +13,7 @@ mod intel;
 #[cfg(target_os = "linux")]
 mod kernel;
 mod llm;
+mod llm_check;
 mod netif;
 mod notify;
 mod otel;
@@ -161,6 +162,11 @@ enum Cmd {
     },
     /// Run an LLM analysis pass now (root).
     Analyze,
+    /// The model under [llm]: check that it answers and can judge a sample.
+    Llm {
+        #[command(subcommand)]
+        cmd: LlmCmd,
+    },
     /// Connections: live by default, finished ones with --history.
     #[command(alias = "conns")]
     Flows {
@@ -262,6 +268,13 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
+enum LlmCmd {
+    /// Send the analysis prompt with a sample attack and check the answer.
+    /// Reads the key from /etc/netwatch/env when it can (root).
+    Check,
+}
+
+#[derive(Subcommand)]
 enum PolicyCmd {
     Show,
     /// Plain-English policy (compiled to rules by the LLM), or rules as JSON.
@@ -329,6 +342,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     if let Cmd::Update { check, auto } = &cli.cmd {
         return update::run(&cli.config, *check, auto.as_deref()).await;
     }
+    if let Cmd::Llm { cmd: LlmCmd::Check } = &cli.cmd {
+        return llm_check::run(&update::installed_config(&cli.config)).await;
+    }
     let action = match cli.cmd {
         Cmd::Start => Some(service::Action::Start),
         Cmd::Stop => Some(service::Action::Stop),
@@ -359,6 +375,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::DefaultConfig
         | Cmd::Skill { .. }
         | Cmd::Update { .. }
+        | Cmd::Llm { .. }
         | Cmd::Start
         | Cmd::Stop
         | Cmd::Restart => unreachable!(),
@@ -1346,6 +1363,12 @@ mod tests {
             assert_eq!(got, want);
         }
         assert!(not_running("http://127.0.0.1:9180").contains("sudo netwatch start"));
+    }
+
+    #[test]
+    fn llm_check_is_a_command() {
+        let cli = Cli::try_parse_from(["netwatch", "llm", "check"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Llm { cmd: LlmCmd::Check }));
     }
 
     #[test]

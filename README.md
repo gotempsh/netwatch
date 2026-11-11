@@ -134,7 +134,7 @@ Install the latest [release](https://github.com/gotempsh/netwatch/releases) as a
 curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-The script picks the archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`. Running it again upgrades netwatch and keeps your configuration. `NETWATCH_VERSION=v0.1.0` installs a specific release.
+The script picks the archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`. Running it again upgrades netwatch and keeps your configuration. `NETWATCH_VERSION=v0.1.0` installs a specific release. Then, as you, it adds the agent skill for each coding agent with a folder in your home (`~/.claude` or `~/.cursor`, `~/.codex` or `~/.agents`); `NETWATCH_SKILL=0` skips it.
 
 From 0.1.3, netwatch updates itself from the latest release. It checks the download against `SHA256SUMS`, and if the new daemon doesn't start, it puts the previous version back:
 
@@ -299,7 +299,7 @@ sudo netwatch allow 198.51.100.4    # never ban; also bypasses XDP drops
 
 When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and restart the daemon: `sudo systemctl restart netwatch`, or `sudo launchctl kickstart -k system/dev.netwatch` on macOS.
 
-To let an AI coding agent investigate with netwatch, install its skill as yourself (no `sudo`), then start a new agent session:
+To let an AI coding agent investigate with netwatch, it needs netwatch's skill. The installer adds it for the agents it finds; otherwise install it as yourself (no `sudo`), then start a new agent session:
 
 ```shell
 netwatch skill --install                          # Claude Code and Cursor

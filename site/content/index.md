@@ -8,12 +8,18 @@ description: netwatch is a single-binary traffic monitor for Linux servers and m
 
 ```shell
 curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
-netwatch skill --install   # the agent skill, for Claude Code and Cursor
 ```
 
-Or let your coding agent set it up:
+It also adds the agent skill for Claude Code, Cursor and Codex when it finds their folders in your home. Or let your coding agent set it up, from a prompt:
 
 <!-- copy-prompt -->
+
+Or from the terminal, with the same prompt:
+
+```shell
+claude "$(curl -fsSL https://gotempsh.github.io/netwatch/prompt.txt)"
+codex "$(curl -fsSL https://gotempsh.github.io/netwatch/prompt.txt)"
+```
 
 netwatch counts every packet in the kernel with eBPF/XDP and records every connection with the process or container behind it. It flags port scans, brute force, floods and listed attackers, and proposes bans that you approve, or enforces them at XDP speed. It starts in **observe** mode: it watches and proposes, and blocks nothing until you approve.
 
@@ -123,4 +129,4 @@ The daemon is one Rust binary with the eBPF programs and the web UI embedded. St
 
 Every page is also plain Markdown at its address with `.md` in place of the trailing slash (`/installation/` is `/installation.md`; this page's is [`/index.md`](/index.md)), or use **Copy page** at the top. [`/llms.txt`](/llms.txt) lists every page and [`/llms-full.txt`](/llms-full.txt) holds them all in one file.
 
-The agent skill teaches a coding agent which command answers which question, how to read scores, and to ask before banning anything. `netwatch skill --install` adds it for Claude Code and Cursor, and `netwatch skill --install --dir ~/.agents/skills` for Codex and most others. [AI agents](/agents) has the folder for each agent and what to ask it.
+The agent skill teaches a coding agent which command answers which question, how to read scores, and to ask before banning anything. The installer adds it for the coding agents it finds; `netwatch skill --install` adds it for Claude Code and Cursor, and `netwatch skill --install --dir ~/.agents/skills` for Codex and most others. The set-up prompt is also plain text at [`/prompt.txt`](/prompt.txt). [AI agents](/agents) has the folder for each agent and what to ask it.

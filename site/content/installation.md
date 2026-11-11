@@ -17,7 +17,7 @@ On Linux and macOS:
 curl -fsSL https://gotempsh.github.io/netwatch/install.sh | sh
 ```
 
-The script picks the release archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`: a systemd service on Linux, a launchd daemon on macOS. Running it again upgrades netwatch and keeps your configuration.
+The script picks the release archive for your OS and architecture, checks it against the release's `SHA256SUMS`, and installs it with `sudo`: a systemd service on Linux, a launchd daemon on macOS. Running it again upgrades netwatch and keeps your configuration. It then adds the [agent skill](/agents) for you, the person running it (not root), for each coding agent with a folder in your home: `~/.claude/skills` for Claude Code and Cursor, `~/.agents/skills` for Codex and others. `NETWATCH_SKILL=0` skips that.
 
 To install a specific release:
 
@@ -108,7 +108,7 @@ Stopping the service detaches the XDP and TC programs, so traffic is no longer c
 sudo rm -rf /etc/netwatch /var/lib/netwatch
 ```
 
-If you installed the agent skill with `netwatch skill --install`, remove `~/.claude/skills/netwatch` too (or `netwatch` in the directory you passed with `--dir`). On macOS, `sudo netwatch uninstall` stops and removes the daemon and the binaries, and `--purge` also deletes the configuration, the database and the log; see [macOS](/macos).
+If you installed the agent skill, with the installer or `netwatch skill --install`, remove `~/.claude/skills/netwatch` and `~/.agents/skills/netwatch` too (or `netwatch` in the directory you passed with `--dir`). On macOS, `sudo netwatch uninstall` stops and removes the daemon and the binaries, and `--purge` also deletes the configuration, the database and the log; see [macOS](/macos).
 
 ## Docker
 

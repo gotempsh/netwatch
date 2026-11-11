@@ -14,7 +14,7 @@ netwatch status
 ```
 
 - One summary line per topic (mode, rates, sources, flows) means it is running.
-- `nothing answers at http://127.0.0.1:9180, so the netwatch daemon isn't running there`: the daemon is down or not installed. On Linux check `systemctl status netwatch` and `journalctl -u netwatch -n 50`. On macOS it runs as the launchd daemon `dev.netwatch` (`sudo launchctl print system/dev.netwatch`, log in `/var/log/netwatch.log`).
+- `nothing answers at http://127.0.0.1:9180, so the netwatch daemon isn't running there`: the daemon is down or not installed. `sudo netwatch start` starts it (it changes the host, so ask first) and prints its last log lines if it fails. To look yourself: on Linux check `systemctl status netwatch` and `journalctl -u netwatch -n 50`. On macOS it runs as the launchd daemon `dev.netwatch` (`sudo launchctl print system/dev.netwatch`, log in `/var/log/netwatch.log`).
 - `0 flows` and the insight `Connection tracking is off`: the kernel refused the flow programs, so flows, DNS and exploit attempts are missing while source counters, findings and bans still work. `journalctl -u netwatch -b | grep 'flow program'` (in Docker, the container's log: `docker logs <container>` or `docker compose logs netwatch`) shows why; 0.1.3 and older hit this on Debian 12 and Ubuntu 22.04 kernels, and `sudo netwatch update` fixes it.
 - `mode observe` (the default) means netwatch never bans on its own: every ban is a proposal a person approves. `mode enforce` bans automatically.
 

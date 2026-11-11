@@ -32,7 +32,7 @@ Then open [http://127.0.0.1:9180](http://127.0.0.1:9180).
 
 `sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too.
 
-Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. After editing the config or that file, restart the daemon with `sudo launchctl kickstart -k system/dev.netwatch`. If the CLI says nothing answers at `127.0.0.1:9180`, `sudo launchctl print system/dev.netwatch` shows whether launchd is running it, and `/var/log/netwatch.log` shows why it stopped.
+Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. After editing the config or that file, restart the daemon with `sudo netwatch restart`. If the CLI says nothing answers at `127.0.0.1:9180`, run `sudo netwatch start`: it registers the daemon with launchd if needed, waits until it answers, and shows the last lines of `/var/log/netwatch.log` if it doesn't. `sudo launchctl print system/dev.netwatch` shows what launchd knows about it.
 
 ## What differs from Linux
 

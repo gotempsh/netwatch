@@ -248,7 +248,7 @@ sudo target/release/netwatch install
 - downloads the DB-IP Lite databases into `/var/db/netwatch`, and schedules `netwatch update-geoip` monthly;
 - starts the launchd daemon `dev.netwatch` in observe mode, logging to `/var/log/netwatch.log`.
 
-`sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too. Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. Restart the daemon after editing either with `sudo launchctl kickstart -k system/dev.netwatch`.
+`sudo netwatch uninstall` stops and removes it; add `--purge` to delete the config, database and log too. Secrets go in `/etc/netwatch/env` (`NETWATCH_SLACK_WEBHOOK=...`), which the daemon reads at startup because launchd has no environment file. Restart the daemon after editing either with `sudo netwatch restart`; `sudo netwatch start` starts it if it isn't running.
 
 Differences on macOS:
 
@@ -297,7 +297,7 @@ sudo netwatch unban 203.0.113.0/24
 sudo netwatch allow 198.51.100.4    # never ban; also bypasses XDP drops
 ```
 
-When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and restart the daemon: `sudo systemctl restart netwatch`, or `sudo launchctl kickstart -k system/dev.netwatch` on macOS.
+When the proposals look right, set `mode = "enforce"` in `/etc/netwatch/netwatch.toml` and restart the daemon: `sudo netwatch restart`.
 
 To let an AI coding agent investigate with netwatch, it needs netwatch's skill. The installer adds it for the agents it finds; otherwise install it as yourself (no `sudo`), then start a new agent session:
 

@@ -18,6 +18,7 @@ mod notify;
 mod otel;
 mod policy;
 mod procs;
+mod service;
 mod skill;
 mod ssh;
 mod store;
@@ -62,6 +63,13 @@ struct Cli {
 enum Cmd {
     /// Run the daemon (root): attach XDP (macOS: capture), serve the UI on 127.0.0.1.
     Run,
+    /// Start the installed daemon if it isn't running (root).
+    Start,
+    /// Stop the daemon until `netwatch start` or the next boot; lifts its bans (root).
+    /// Updates wait while it is stopped.
+    Stop,
+    /// Restart the daemon, for example after editing the config (root).
+    Restart,
     /// Install this binary as a launchd daemon and start it (root).
     #[cfg(target_os = "macos")]
     Install,
@@ -317,9 +325,18 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::UpdateGeoip => return macos::launchd::update_geoip(&Config::load(&cli.config)?),
         _ => {}
     }
-    // It loads the config the installed daemon runs with, which may not be this one.
+    // These load the config the installed daemon runs with, which may not be this one.
     if let Cmd::Update { check, auto } = &cli.cmd {
         return update::run(&cli.config, *check, auto.as_deref()).await;
+    }
+    let action = match cli.cmd {
+        Cmd::Start => Some(service::Action::Start),
+        Cmd::Stop => Some(service::Action::Stop),
+        Cmd::Restart => Some(service::Action::Restart),
+        _ => None,
+    };
+    if let Some(action) = action {
+        return service::run(action, &update::installed_config(&cli.config)).await;
     }
     let cfg = Config::load(&cli.config)?;
     let api = Client {
@@ -339,7 +356,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.cmd {
         Cmd::Run => daemon::run(cfg).await?,
-        Cmd::DefaultConfig | Cmd::Skill { .. } | Cmd::Update { .. } => unreachable!(),
+        Cmd::DefaultConfig
+        | Cmd::Skill { .. }
+        | Cmd::Update { .. }
+        | Cmd::Start
+        | Cmd::Stop
+        | Cmd::Restart => unreachable!(),
         #[cfg(target_os = "macos")]
         Cmd::Install | Cmd::Uninstall { .. } | Cmd::UpdateGeoip => unreachable!(),
         Cmd::Status => {
@@ -1023,13 +1045,8 @@ where
 }
 
 fn not_running(base: &str) -> String {
-    let check = if cfg!(target_os = "macos") {
-        "sudo launchctl print system/dev.netwatch, and /var/log/netwatch.log"
-    } else {
-        "systemctl status netwatch"
-    };
     format!(
-        "nothing answers at {base}, so the netwatch daemon isn't running there. Check: {check}. Not installed yet: https://gotempsh.github.io/netwatch/installation/"
+        "nothing answers at {base}, so the netwatch daemon isn't running there. Start it: sudo netwatch start. Not installed yet: https://gotempsh.github.io/netwatch/installation/"
     )
 }
 
@@ -1314,6 +1331,21 @@ mod tests {
 
         let (_, result) = sent(vec![7], &[7]);
         assert_eq!(result.unwrap_err().to_string(), "no proposal #7");
+    }
+
+    #[test]
+    fn start_stop_and_restart_are_commands() {
+        for (arg, want) in [("start", "Start"), ("stop", "Stop"), ("restart", "Restart")] {
+            let cli = Cli::try_parse_from(["netwatch", arg]).unwrap();
+            let got = match cli.cmd {
+                Cmd::Start => "Start",
+                Cmd::Stop => "Stop",
+                Cmd::Restart => "Restart",
+                _ => "other",
+            };
+            assert_eq!(got, want);
+        }
+        assert!(not_running("http://127.0.0.1:9180").contains("sudo netwatch start"));
     }
 
     #[test]

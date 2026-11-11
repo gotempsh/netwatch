@@ -9,7 +9,7 @@ netwatch reads `/etc/netwatch/netwatch.toml`, or the file passed with `--config`
 netwatch default-config
 ```
 
-Restart the service after editing: `sudo systemctl restart netwatch` on Linux, `sudo launchctl kickstart -k system/dev.netwatch` on macOS. Changed GeoIP files are reloaded on their own. A setting netwatch doesn't know, such as a misspelled key, is ignored with a warning that names it (``unknown setting `interfase` ignored``), so check the log or any CLI command's output after editing.
+Restart the daemon after editing: `sudo netwatch restart`. It checks that the config parses before restarting, and waits until the daemon answers again. Changed GeoIP files are reloaded on their own. A setting netwatch doesn't know, such as a misspelled key, is ignored with a warning that names it (``unknown setting `interfase` ignored``), so check the log or any CLI command's output after editing.
 
 ## Secrets
 

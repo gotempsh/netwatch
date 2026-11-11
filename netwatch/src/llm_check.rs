@@ -33,7 +33,7 @@ pub async fn run(config_path: &Path) -> anyhow::Result<()> {
     cfg.api_key = key.value.clone();
     let base = cfg.base_url.trim_end_matches('/').to_string();
 
-    probe(&base, &cfg.model, &key, &cfg.api_key_env, &env_file).await?;
+    let unlisted = probe(&base, &cfg.model, &key, &cfg.api_key_env, &env_file).await?;
 
     let llm = Llm::new(&cfg)?;
     let started = Instant::now();
@@ -45,7 +45,11 @@ pub async fn run(config_path: &Path) -> anyhow::Result<()> {
                 cfg.model
             )
         } else {
-            e.context(format!("{} at {base} didn't answer the analysis prompt", cfg.model))
+            let e = e.context(format!("{} at {base} didn't answer the analysis prompt", cfg.model));
+            match &unlisted {
+                Some(note) => anyhow::anyhow!("{e:#}. {note}"),
+                None => e,
+            }
         }
     })?;
     let secs = started.elapsed().as_secs_f64();
@@ -123,14 +127,17 @@ fn is_ollama(base: &str) -> bool {
 }
 
 /// GET /models: tells a dead endpoint, a refused key and a missing model apart
-/// before the real call. Endpoints without /models are skipped.
+/// before the real call. Endpoints without /models are skipped. A model that
+/// another server doesn't list isn't fatal: single-model servers (llama.cpp)
+/// answer whatever the request names, and proxies route names they don't
+/// list. It returns what to say if the real call then fails.
 async fn probe(
     base: &str,
     model: &str,
     key: &Key,
     var: &str,
     env_file: &Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
@@ -166,10 +173,10 @@ async fn probe(
         }
     }
     if !status.is_success() {
-        return Ok(());
+        return Ok(None);
     }
     let Ok(body) = resp.json::<serde_json::Value>().await else {
-        return Ok(());
+        return Ok(None);
     };
     let ids: Vec<&str> = body["data"]
         .as_array()
@@ -178,23 +185,25 @@ async fn probe(
         .filter_map(|m| m["id"].as_str())
         .collect();
     if ids.is_empty() || has_model(&ids, model) {
-        return Ok(());
+        return Ok(None);
     }
     if is_ollama(base) {
         bail!("Ollama at {base} doesn't have {model}; pull it: ollama pull {model}");
     }
     let some: Vec<&str> = ids.iter().take(8).copied().collect();
-    bail!(
-        "{base} has no model {model}; it lists {}{}",
+    Ok(Some(format!(
+        "{base} doesn't list {model}; set model under [llm] to one it lists: {}{}",
         some.join(", "),
         if ids.len() > some.len() { ", ..." } else { "" }
-    )
+    )))
 }
 
-/// Ollama lists `name:tag` and treats a bare name as `name:latest`.
+/// Ollama lists `name:tag` and treats a bare name as `name:latest`; Gemini
+/// lists `models/name` and takes `name`.
 fn has_model(ids: &[&str], model: &str) -> bool {
     ids.iter()
-        .any(|id| *id == model || *id == format!("{model}:latest"))
+        .map(|id| id.strip_prefix("models/").unwrap_or(id))
+        .any(|id| id == model || id == format!("{model}:latest"))
 }
 
 fn covers(target: &str, ip: &str) -> bool {
@@ -313,7 +322,8 @@ mod tests {
     }
 
     /// A fake OpenAI-compatible endpoint: `status` for /models (with `models`
-    /// listed on 200) and `reply` as the chat completion's content.
+    /// listed on 200) and `reply` as the chat completion's content, whatever
+    /// model is asked for. An empty `reply` answers 404, as for an unknown model.
     async fn endpoint(status: u16, models: &'static [&'static str], reply: &'static str) -> String {
         use axum::{
             Json, Router,
@@ -329,10 +339,17 @@ mod tests {
             .route(
                 "/v1/chat/completions",
                 post(move || async move {
-                    Json(serde_json::json!({
-                        "choices": [{"message": {"content": reply}}],
-                        "usage": {"prompt_tokens": 400, "completion_tokens": 60},
-                    }))
+                    if reply.is_empty() {
+                        let e = serde_json::json!({"error": {"message": "model not found"}});
+                        return (StatusCode::NOT_FOUND, Json(e));
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "choices": [{"message": {"content": reply}}],
+                            "usage": {"prompt_tokens": 400, "completion_tokens": 60},
+                        })),
+                    )
                 }),
             );
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -377,11 +394,24 @@ mod tests {
         );
         assert!(locked.contains("/env (mode 0600)"), "{locked}");
 
-        let missing = msg(check("missing", &endpoint(200, &["other:3b"], GOOD).await).await);
+        let missing = msg(check("missing", &endpoint(200, &["other:3b"], "").await).await);
         assert!(
-            missing.contains("has no model m:1b; it lists other:3b"),
+            missing.contains("doesn't list m:1b; set model under [llm] to one it lists: other:3b"),
             "{missing}"
         );
+        assert!(
+            missing.contains("m:1b at http://")
+                && missing.contains("didn't answer the analysis prompt: LLM returned 404"),
+            "{missing}"
+        );
+
+        // A single-model server (llama.cpp) lists its file and answers any name.
+        check(
+            "single",
+            &endpoint(200, &["models/Qwen3-1.7B-Q4_K_M.gguf"], GOOD).await,
+        )
+        .await
+        .unwrap();
 
         let wrong = msg(check("wrong", &endpoint(200, &["m:1b"], WRONG).await).await);
         assert!(
@@ -414,5 +444,6 @@ mod tests {
         assert!(has_model(&ids, "qwen2.5:3b"));
         assert!(has_model(&ids, "llama3.2"));
         assert!(!has_model(&ids, "qwen2.5"));
+        assert!(has_model(&["models/gemini-2.0-flash"], "gemini-2.0-flash"));
     }
 }

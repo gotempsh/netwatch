@@ -141,7 +141,8 @@ impl Llm {
             if no_reasoning && !q.no_reasoning_effort {
                 body["reasoning_effort"] = json!("none");
             }
-            if let Some(schema) = schema.filter(|_| !q.no_json_schema) {
+            // json_mode = false sends no response_format at all, schema included.
+            if let Some(schema) = schema.filter(|_| self.cfg.json_mode && !q.no_json_schema) {
                 body["response_format"] = json!({
                     "type": "json_schema",
                     "json_schema": {"name": "reply", "strict": true, "schema": schema},
@@ -174,6 +175,7 @@ impl Llm {
                     continue;
                 }
                 if schema.is_some()
+                    && self.cfg.json_mode
                     && !q.no_json_schema
                     && (no_structured
                         || lower.contains("json_schema")
@@ -387,6 +389,42 @@ mod tests {
             .as_array()
             .unwrap();
         assert_eq!(fields.len(), 5);
+    }
+
+    /// The `response_format` analyze sends, as a fake endpoint received it.
+    async fn analysis_format(json_mode: bool) -> Value {
+        use axum::{Json, Router, routing::post};
+        let seen = std::sync::Arc::new(Mutex::new(Value::Null));
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post({
+                let seen = seen.clone();
+                move |Json(body): Json<Value>| async move {
+                    *seen.lock().unwrap() = body["response_format"].clone();
+                    Json(json!({
+                        "choices": [{"message": {"content": r#"{"summary":"x","actions":[]}"#}}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                    }))
+                }
+            }),
+        );
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}/v1", l.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(l, app).await });
+        let cfg = LlmConfig {
+            base_url,
+            model: "m".into(),
+            json_mode,
+            ..LlmConfig::default()
+        };
+        Llm::new(&cfg).unwrap().analyze("digest").await.unwrap();
+        seen.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn json_mode_false_sends_no_response_format() {
+        assert_eq!(analysis_format(true).await["type"], "json_schema");
+        assert_eq!(analysis_format(false).await, Value::Null);
     }
 
     #[test]

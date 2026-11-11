@@ -196,7 +196,9 @@ pub struct LlmConfig {
     /// Most suspicious sources included per call.
     pub max_sources_per_call: usize,
     pub max_output_tokens: u32,
-    /// Ask for `response_format: json_object` (dropped automatically if unsupported).
+    /// Ask for JSON output with `response_format`: a JSON schema for analysis,
+    /// else `json_object` (each dropped automatically if unsupported). `false`
+    /// sends no `response_format` at all.
     pub json_mode: bool,
     /// Apply LLM "ban" proposals without approval (enforce mode only).
     pub auto_apply: bool,

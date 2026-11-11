@@ -85,9 +85,13 @@ mod tests {
 
     /// Every netwatch command the skill shows, as written.
     fn commands() -> Vec<String> {
+        commands_in(SKILL)
+    }
+
+    fn commands_in(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         let mut in_code = false;
-        for line in SKILL.lines() {
+        for line in text.lines() {
             if line.starts_with("```") {
                 in_code = !in_code;
                 continue;
@@ -144,6 +148,36 @@ mod tests {
                 panic!("{cmd}: {e}");
             }
         }
+    }
+
+    /// The set-up prompt on the docs site, which tells an agent to run these
+    /// commands and to look for this output.
+    #[test]
+    fn the_set_up_prompt_matches_the_cli_and_the_installer() {
+        let source = include_str!("../../site/agent-prompt.mjs");
+        let (_, prompt) = source
+            .split_once("export const agentPrompt = `")
+            .expect("the prompt's template string");
+        let prompt = prompt.replace("\\`", "`");
+        let cmds = commands_in(&prompt);
+        assert!(cmds.len() >= 6, "found only {cmds:?}");
+        for cmd in cmds {
+            match crate::Cli::try_parse_from(words(&cmd)) {
+                Ok(_) => {}
+                Err(e) if e.kind() == clap::error::ErrorKind::DisplayVersion => {}
+                Err(e) => panic!("{cmd}: {e}"),
+            }
+        }
+        let said = installed_message(Path::new("/x/SKILL.md"));
+        assert!(prompt.contains("printing \"installed the netwatch ... skill at <path>\""));
+        assert!(
+            said.starts_with("installed the netwatch ") && said.ends_with(" skill at /x/SKILL.md")
+        );
+        let get = include_str!("../../scripts/get.sh");
+        assert!(get.contains("/usr/local/bin/netwatch skill --install &&"));
+        assert!(
+            get.contains("/usr/local/bin/netwatch skill --install --dir \"$HOME/.agents/skills\"")
+        );
     }
 
     #[test]

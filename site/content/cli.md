@@ -122,4 +122,4 @@ netwatch skill --install --dir .claude/skills     # one project only
 netwatch skill                                    # print it, to put it anywhere else
 ```
 
-The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it as yourself: under `sudo` it refuses unless you pass `--dir`, because the files would belong to root. [AI agents](/agents) has the directory for each agent and how to use it.
+The [install script](/installation#install-script) runs the first two for you, for each agent it finds. The skill is built into the binary, so it always matches the installed version; run `--install` again after upgrading. Run it as yourself: under `sudo` it refuses unless you pass `--dir`, because the files would belong to root. [AI agents](/agents) has the directory for each agent and how to use it.

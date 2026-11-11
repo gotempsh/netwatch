@@ -13,9 +13,24 @@ netwatch ships a skill for AI coding agents. It teaches the agent which command 
 
 This is separate from [AI analysis](/ai-analysis), where the daemon itself asks a model about sources the rules can't settle. The skill needs no model configured in netwatch: your agent does the work.
 
+## Set it up with your agent
+
+Paste this prompt into a coding agent running on the machine netwatch should watch. The agent installs netwatch, checks that the skill is in place, confirms the daemon runs and reports what it sees. It changes nothing else without asking:
+
+<!-- copy-prompt -->
+
+Or start the agent with it from the terminal:
+
+```shell
+claude "$(curl -fsSL https://gotempsh.github.io/netwatch/prompt.txt)"
+codex "$(curl -fsSL https://gotempsh.github.io/netwatch/prompt.txt)"
+```
+
+`curl -fsSL https://gotempsh.github.io/netwatch/prompt.txt` shows the prompt first. Installing needs root: when `sudo` asks for a password, the agent stops and asks you to run the install command yourself, then carries on once you tell it you're done.
+
 ## Add the skill
 
-Run these as yourself, not with `sudo`, on the machine where the agent runs. The skill is built into the binary, so it always matches the netwatch you have installed. Start a new agent session afterwards so the agent picks it up.
+The [install script](/installation#install-script) adds the skill for you, the person running it, for each coding agent with a folder in your home: `~/.claude/skills` when `~/.claude` or `~/.cursor` exists, `~/.agents/skills` when `~/.codex` or `~/.agents` exists. To add it yourself, or for an agent it didn't find, run the commands below as yourself, not with `sudo`, on the machine where the agent runs. The skill is built into the binary, so it always matches the netwatch you have installed. Start a new agent session afterwards so the agent picks it up.
 
 Each command writes `<dir>/netwatch/SKILL.md`, creating the directory if needed, and prints where it went:
 

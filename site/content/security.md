@@ -153,7 +153,7 @@ less install.sh
 sh install.sh
 ```
 
-It downloads the archive and `SHA256SUMS` from the GitHub release, checks the hash, and runs the archive's own installer with `sudo`: `scripts/install.sh` on Linux, `netwatch install` on macOS. You can also [install by hand](/installation#linux-by-hand) without it.
+It downloads the archive and `SHA256SUMS` from the GitHub release, checks the hash, and runs the archive's own installer with `sudo`: `scripts/install.sh` on Linux, `netwatch install` on macOS. Without `sudo`, as you, it then writes the agent skill to `~/.claude/skills/netwatch` and `~/.agents/skills/netwatch` when `~/.claude`, `~/.cursor`, `~/.codex` or `~/.agents` exists (`NETWATCH_SKILL=0` skips it). You can also [install by hand](/installation#linux-by-hand) without it.
 
 ## Uninstall
 
@@ -194,4 +194,4 @@ With `docker-compose.yml`, `docker compose down -v` in its directory removes the
 
 ### The agent skill
 
-If you ran `netwatch skill --install`, remove `~/.claude/skills/netwatch` (or the directory you passed with `--dir`).
+Remove `~/.claude/skills/netwatch` and `~/.agents/skills/netwatch`, where the installer and `netwatch skill --install` put it, or `netwatch` in the directory you passed with `--dir`.

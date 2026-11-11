@@ -301,6 +301,8 @@ fs.cpSync(path.join(mermaid, "chunks/mermaid.esm.min"), path.join(OUT, "mermaid/
 });
 // The one-line installer: curl -fsSL <site>/install.sh | sh
 fs.copyFileSync(path.join(ROOT, "../scripts/get.sh"), path.join(OUT, "install.sh"));
+// The set-up prompt as text, to start an agent with: claude "$(curl -fsSL <site>/prompt.txt)"
+fs.writeFileSync(path.join(OUT, "prompt.txt"), `${agentPrompt}\n`);
 const fonts = path.join(ROOT, "node_modules/geist/dist/fonts");
 fs.copyFileSync(path.join(fonts, "geist-sans/Geist-Variable.woff2"), path.join(OUT, "fonts/Geist-Variable.woff2"));
 fs.copyFileSync(path.join(fonts, "geist-mono/GeistMono-Variable.woff2"), path.join(OUT, "fonts/GeistMono-Variable.woff2"));

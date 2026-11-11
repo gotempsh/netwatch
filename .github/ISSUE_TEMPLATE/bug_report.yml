@@ -25,7 +25,7 @@ body:
     attributes:
       label: netwatch version
       description: The output of `netwatch --version`.
-      placeholder: netwatch 0.2.0
+      placeholder: netwatch 0.2.1
     validations:
       required: true
   - type: dropdown

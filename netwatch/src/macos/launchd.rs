@@ -122,6 +122,11 @@ fn loaded(label: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Whether the daemon was stopped: its plist is installed but launchd doesn't have it.
+pub fn stopped() -> bool {
+    plist_path(LABEL).exists() && !loaded(LABEL)
+}
+
 /// Unregisters a job and waits until launchd lets go of it. bootout can return
 /// while the job is still shutting down, and a bootstrap in that window fails
 /// with "5: Input/output error".

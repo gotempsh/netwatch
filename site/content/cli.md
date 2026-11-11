@@ -100,8 +100,8 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 
 | Command | |
 |---|---|
-| `netwatch start` | **root**: start the installed daemon if it isn't running, then wait until it answers; shows its last log lines if it doesn't |
-| `netwatch stop` | **root**: stop the daemon until `netwatch start` or the next boot; its bans are lifted while it is stopped |
+| `netwatch start` | **root**: start the installed daemon if it isn't running, then wait until it answers; shows its last log lines if it doesn't, and refuses a config that doesn't parse |
+| `netwatch stop` | **root**: stop the daemon until `netwatch start` or the next boot; its bans are lifted while it is stopped. Works with a broken config, to end a restart loop. Updates, including the daily one, wait until it is started again |
 | `netwatch restart` | **root**: restart the daemon, for example after editing the config; refuses a config that doesn't parse |
 | `netwatch run` | **root**: run the daemon in the foreground (what the service runs) |
 | `netwatch install` | **root**, macOS: install this binary as a launchd daemon and start it |
@@ -112,7 +112,7 @@ See [Bans and policy](/bans-and-policy) and [AI analysis](/ai-analysis).
 | `netwatch update --auto on\|off` | **root**: install new releases daily, or stop |
 | `netwatch default-config` | print the default configuration |
 
-`start`, `stop` and `restart` drive the systemd service on Linux and the launchd daemon `dev.netwatch` on macOS. In the container, use `docker start`, `stop` and `restart` instead. On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
+`start`, `stop` and `restart` drive the systemd service on Linux and the launchd daemon `dev.netwatch` on macOS. On macOS they read the config the daemon was installed with (`netwatch install --config`), so `--config` isn't needed again. In the container, use `docker start`, `stop` and `restart` instead. On Linux, `scripts/install.sh` installs the systemd service; see [Installation](/installation). [Updating](/installation#updating) covers `netwatch update`, and [Uninstalling](/installation#uninstalling) removing it.
 
 ## Agent skill
 

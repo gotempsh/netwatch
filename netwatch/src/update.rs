@@ -280,6 +280,17 @@ fn check_managed() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The installer starts the daemon, so updating one that was stopped on
+/// purpose would bring its bans back; the daily job retries after a start.
+fn check_not_stopped(stopped: bool, latest: &Version) -> anyhow::Result<()> {
+    if stopped {
+        bail!(
+            "netwatch is stopped, so {latest} wasn't installed; installing would start it again. Start it, then update: sudo netwatch start && sudo netwatch update"
+        );
+    }
+    Ok(())
+}
+
 /// `bin` is the file the installer wrote and `exe` is it. A symlink at `bin`
 /// itself is someone's own build linked into place, which an update would
 /// replace with a release; a symlinked parent directory is fine.
@@ -422,7 +433,9 @@ pub async fn run(given: &Path, check: bool, auto: Option<&str>) -> anyhow::Resul
 
     require_root("netwatch update")?;
     check_managed()?;
+    // After the lock: another update's installer briefly unloads the daemon.
     let _lock = Lock::take(cfg)?;
+    check_not_stopped(crate::service::stopped(), &latest)?;
     let dir = TempDir::new()?;
     let unpacked = fetch(RELEASES, &tag, asset, &dir.0).await?;
 
@@ -523,6 +536,21 @@ fn set_auto(config: &Path, on: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stopped_daemon_isnt_updated() {
+        let v = Version::new(9, 9, 9);
+        let msg = check_not_stopped(true, &v).unwrap_err().to_string();
+        assert!(
+            msg.contains("netwatch is stopped, so 9.9.9 wasn't installed"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("sudo netwatch start && sudo netwatch update"),
+            "{msg}"
+        );
+        assert!(check_not_stopped(false, &v).is_ok());
+    }
 
     #[test]
     fn reads_the_tag_from_the_redirect() {

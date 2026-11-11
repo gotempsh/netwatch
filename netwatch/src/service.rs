@@ -1,9 +1,11 @@
 //! `netwatch start`, `stop` and `restart`: the daemon's service, through
 //! systemd on Linux and launchd on macOS.
 
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
-use anyhow::bail;
+use anyhow::{Context as _, bail};
+
+use crate::config::Config;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
@@ -31,27 +33,22 @@ pub fn logs() -> &'static str {
     }
 }
 
-pub async fn run(action: Action, api_url: &str) -> anyhow::Result<()> {
+/// `config` is the one the installed daemon runs with (`update::installed_config`).
+pub async fn run(action: Action, config: &Path) -> anyhow::Result<()> {
     let verb = action.verb();
+    let Some(api_url) = &api_url(action, config)? else {
+        may_act(verb)?;
+        platform(action)?;
+        println!("stopped netwatch; its bans are lifted until it starts again");
+        return Ok(());
+    };
     if action == Action::Start && started_at(api_url).await.is_some() {
         println!("netwatch is already running");
         return Ok(());
     }
-    if crate::util::in_container() {
-        bail!(
-            "netwatch runs in a container here; {verb} the container instead: docker {verb} <container> (or docker compose {verb})"
-        );
-    }
-    // SAFETY: geteuid has no preconditions.
-    if unsafe { libc::geteuid() } != 0 {
-        bail!("{verb} needs root: sudo netwatch {verb}");
-    }
+    may_act(verb)?;
     let asked = crate::util::now_unix();
     platform(action)?;
-    if action == Action::Stop {
-        println!("stopped netwatch; its bans are lifted until it starts again");
-        return Ok(());
-    }
     // The daemon loads its programs and the database before the API answers.
     // After a restart it must be the new one, not the old one still shutting down.
     for _ in 0..60 {
@@ -69,6 +66,51 @@ pub async fn run(action: Action, api_url: &str) -> anyhow::Result<()> {
         recent_log(),
         logs()
     )
+}
+
+/// Where the daemon will answer once it's up, from the config it loads; None
+/// for stop, which never reads the config: a broken one is often why the
+/// daemon keeps restarting, and stop is how to end that.
+fn api_url(action: Action, config: &Path) -> anyhow::Result<Option<String>> {
+    if action == Action::Stop {
+        return Ok(None);
+    }
+    let verb = action.verb();
+    let cfg = Config::load(config).with_context(|| {
+        format!(
+            "the daemon can't start with {}, so it wasn't {verb}ed; fix it, then: sudo netwatch {verb}",
+            config.display()
+        )
+    })?;
+    Ok(Some(cfg.api_url()))
+}
+
+fn may_act(verb: &str) -> anyhow::Result<()> {
+    if crate::util::in_container() {
+        bail!(
+            "netwatch runs in a container here; {verb} the container instead: docker {verb} <container> (or docker compose {verb})"
+        );
+    }
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        bail!("{verb} needs root: sudo netwatch {verb}");
+    }
+    Ok(())
+}
+
+/// Whether the service was stopped (`netwatch stop`), as opposed to running,
+/// starting or failing. An update leaves a stopped daemon alone.
+#[cfg(target_os = "macos")]
+pub fn stopped() -> bool {
+    crate::macos::launchd::stopped()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn stopped() -> bool {
+    std::process::Command::new("systemctl")
+        .args(["is-active", "netwatch.service"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "inactive")
 }
 
 /// The daemon's last log lines, best effort.
@@ -149,4 +191,48 @@ fn platform(action: Action) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These never call run(): Linux tests run as root (`sudo -E`), where it
+    // would drive the machine's real service.
+
+    #[test]
+    fn stop_doesnt_read_the_config_but_start_and_restart_refuse_a_broken_one() {
+        let path =
+            std::env::temp_dir().join(format!("netwatch-broken-{}.toml", std::process::id()));
+        std::fs::write(&path, "interface = \n").unwrap();
+        let stop = api_url(Action::Stop, &path);
+        let others = [Action::Start, Action::Restart].map(|a| (a, api_url(a, &path)));
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(stop.unwrap().is_none());
+        for (action, result) in others {
+            let msg = format!("{:#}", result.unwrap_err());
+            let verb = action.verb();
+            assert!(
+                msg.contains(&format!(
+                    "so it wasn't {verb}ed; fix it, then: sudo netwatch {verb}"
+                )),
+                "{msg}"
+            );
+            assert!(msg.contains("parsing"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn start_and_restart_wait_on_the_configured_api_address() {
+        let path = std::env::temp_dir().join(format!("netwatch-port-{}.toml", std::process::id()));
+        std::fs::write(
+            &path,
+            "interface = \"lo\"\napi_listen = \"127.0.0.1:9999\"\n",
+        )
+        .unwrap();
+        let url = api_url(Action::Restart, &path);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(url.unwrap().as_deref(), Some("http://127.0.0.1:9999"));
+    }
 }

@@ -15,6 +15,7 @@ Set `mode` in `/etc/netwatch/netwatch.toml` and restart the service. With `drop_
 ```shell
 netwatch proposals                   # pending proposals; --all includes decided ones
 sudo netwatch approve 7              # apply a proposal
+sudo netwatch approve 7 9 12         # several at once
 sudo netwatch reject 7
 netwatch bans
 sudo netwatch ban 203.0.113.0/24 --ttl 7d --reason "scanner subnet"

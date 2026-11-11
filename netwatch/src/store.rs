@@ -377,12 +377,32 @@ pub struct HourDelta<'a> {
     pub score: u32,
 }
 
+/// Makes the database, and its WAL files when they exist, readable by its
+/// owner only: it holds connections, DNS queries and SSH usernames.
+fn owner_only(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    for suffix in ["", "-wal", "-shm"] {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        let file = Path::new(&name);
+        // Also skips ":memory:", which has no file.
+        if file.exists() {
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("making {} owner-only", file.display()))?;
+        }
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).ok();
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        // Before the first write, so SQLite creates the -wal and -shm files
+        // with the same mode.
+        owner_only(path)?;
         let new_window_table = !conn
             .prepare(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'flow_bytes_hourly'",
@@ -492,6 +512,8 @@ impl Store {
         } else {
             conn.execute_batch(WINDOW_SCHEMA)?;
         }
+        // Files left by an older version that created them 0644.
+        owner_only(path)?;
         Ok(Self {
             conn,
             window_saved: 0,
@@ -1663,6 +1685,49 @@ mod tests {
             .collect();
         assert_eq!(got, [(120, 5), (3_720, 4)]);
         assert_eq!(s.window_minutes(121).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_database_and_its_wal_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("netwatch-mode-{}.db", std::process::id()));
+        let file = |suffix: &str| {
+            let mut name = path.as_os_str().to_owned();
+            name.push(suffix);
+            std::path::PathBuf::from(name)
+        };
+        let mode = |suffix: &str| {
+            std::fs::metadata(file(suffix))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        let clean = || {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(file(suffix));
+            }
+        };
+        clean();
+        {
+            let s = Store::open(&path).unwrap();
+            s.conn
+                .execute_batch("CREATE TABLE t (x); INSERT INTO t VALUES (1);")
+                .unwrap();
+            assert_eq!(mode(""), 0o600);
+            assert_eq!(mode("-wal"), 0o600);
+            assert_eq!(mode("-shm"), 0o600);
+        }
+        // Files an older version left readable by everyone.
+        std::fs::write(file("-wal"), b"").unwrap();
+        for suffix in ["", "-wal"] {
+            std::fs::set_permissions(file(suffix), std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        assert_eq!(mode(""), 0o600);
+        assert_eq!(mode("-wal"), 0o600);
+        drop(s);
+        clean();
     }
 
     #[test]

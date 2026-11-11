@@ -50,6 +50,11 @@ pub struct Config {
     pub drop_syn_ip_options: bool,
     /// Read-only API + UI. Must be a loopback address.
     pub api_listen: String,
+    /// Host names the API answers to besides loopback ones (localhost, 127.0.0.1,
+    /// [::1]): add the name a reverse proxy or `tailscale serve` on this machine
+    /// uses. Any other Host header is refused, so a web page can't read the API
+    /// through DNS rebinding.
+    pub api_hosts: Vec<String>,
     /// Root-only control socket used by the CLI for bans, approvals and policy.
     pub control_socket: PathBuf,
     pub db_path: PathBuf,
@@ -276,6 +281,7 @@ impl Default for Config {
             drop_banned: true,
             drop_syn_ip_options: false,
             api_listen: "127.0.0.1:9180".into(),
+            api_hosts: Vec::new(),
             control_socket: format!("{RUN_DIR}/control.sock").into(),
             db_path: format!("{DATA_DIR}/netwatch.db").into(),
             geoip_city: format!("{DATA_DIR}/dbip-city-lite.mmdb").into(),

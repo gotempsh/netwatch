@@ -47,6 +47,8 @@ One setting drops traffic from anyone: `drop_syn_ip_options`, which drops IPv4 S
 
 The UI and its API listen on `127.0.0.1:9180`. The daemon refuses to start if `api_listen` isn't a loopback address, so to reach it from your laptop you use an SSH tunnel (`ssh -L 9180:127.0.0.1:9180 server`).
 
+It answers only requests addressed to `localhost`, `127.0.0.1` or `[::1]` (any port, so a tunnel to another local port works). Anything else gets `403`. That stops DNS rebinding: a web page you visit can point its own name at `127.0.0.1`, but its requests still carry that name in the `Host` header. If a reverse proxy or `tailscale serve` on the same machine serves the UI under another name, add that name to `api_hosts`.
+
 The API only has `GET` routes, so nothing can be changed over HTTP. It never returns the model's API key or the Slack webhook. It has no login, though: any user or process on the machine (or at your end of an SSH tunnel) can read everything it shows, including connections, DNS queries, process names and SSH usernames. Don't run it on a host shared with people who shouldn't see that.
 
 The UI is embedded in the binary and loads nothing from the internet.
@@ -99,7 +101,7 @@ It sends no payloads, no flows, no DNS queries, no usernames and no host name. `
 
 Everything netwatch keeps is in one SQLite file, `/var/lib/netwatch/netwatch.db` on Linux and `/var/db/netwatch/netwatch.db` on macOS. The GeoIP databases sit next to it.
 
-The file is created with mode `0644`. On macOS `netwatch install` makes its directory `0750`. On Linux the unit's `StateDirectory=` resets `/var/lib/netwatch` to systemd's default `0755` at every start, so local users can read the database there, the same data the API already shows them.
+The database and its `-wal` and `-shm` files are mode `0600`, readable by root only. The daemon sets that every time it starts, so a database an older version created as `0644` is fixed on the first start after an update. On Linux the unit makes `/var/lib/netwatch` `0700` (`StateDirectoryMode=`); on macOS `netwatch install` makes `/var/db/netwatch` `0750`. The API still shows the same data to any local user, as [above](#the-web-ui-and-api).
 
 | Kept for | What |
 |---|---|

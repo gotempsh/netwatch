@@ -14,6 +14,8 @@ RestartSec=5
 RuntimeDirectory=netwatch
 RuntimeDirectoryMode=0700
 StateDirectory=netwatch
+# The database holds connections, DNS queries and SSH usernames: root only.
+StateDirectoryMode=0700
 # Needs root for BPF, XDP attach, journal access and `sshd -T`; keep the rest locked down.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/netwatch

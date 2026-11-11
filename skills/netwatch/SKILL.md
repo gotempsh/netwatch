@@ -75,6 +75,7 @@ Bans drop traffic in the kernel. Treat every change as the user's decision:
 ```sh
 netwatch proposals
 sudo netwatch approve 7        # or: sudo netwatch reject 7
+sudo netwatch approve 2 3 5    # several IDs in one command
 ```
 
 Other changes, all with `sudo`:

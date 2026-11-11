@@ -9,8 +9,9 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::{StatusCode, Uri, header},
+    middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -67,6 +68,7 @@ pub async fn serve(app: Arc<App>) {
         .route("/api/timeline", get(timeline))
         .route("/api/flows/graph", get(flows_graph))
         .fallback(static_file)
+        .layer(from_fn_with_state(app.clone(), host_guard))
         .with_state(app);
     match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => {
@@ -77,6 +79,52 @@ pub async fn serve(app: Arc<App>) {
         }
         Err(e) => log::error!("api: cannot bind {addr}: {e}"),
     }
+}
+
+/// Refuses requests whose Host isn't this machine. A web page can point its
+/// own name at 127.0.0.1 (DNS rebinding) and read the API from the browser;
+/// its requests still carry that name, so they stop here.
+async fn host_guard(State(app): AppState, req: Request, next: Next) -> Response {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok());
+    if host_allowed(host, &app.cfg.api_hosts) {
+        return next.run(req).await;
+    }
+    (
+        StatusCode::FORBIDDEN,
+        format!(
+            "netwatch answers only to localhost, not to Host {:?}. If a proxy on this machine \
+             serves the UI under that name, add it to api_hosts in netwatch.toml.",
+            host.unwrap_or("")
+        ),
+    )
+        .into_response()
+}
+
+fn host_allowed(host: Option<&str>, extra: &[String]) -> bool {
+    // Browsers always send Host; a request without one isn't a rebound page.
+    let Some(host) = host else { return true };
+    let name = host_name(host);
+    name.eq_ignore_ascii_case("localhost")
+        || name.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        || extra
+            .iter()
+            .any(|h| host_name(h).eq_ignore_ascii_case(name))
+}
+
+/// The name in a Host header, without its port, IPv6 brackets or trailing dot.
+fn host_name(host: &str) -> &str {
+    let name = if let Some(rest) = host.strip_prefix('[') {
+        rest.split_once(']').map_or(rest, |(h, _)| h)
+    } else {
+        match host.rsplit_once(':') {
+            Some((h, port)) if !h.contains(':') && port.bytes().all(|b| b.is_ascii_digit()) => h,
+            _ => host,
+        }
+    };
+    name.trim_end_matches('.')
 }
 
 async fn static_file(uri: Uri) -> Response {
@@ -2273,5 +2321,35 @@ mod tests {
         assert_eq!(flow_failure(&rows[2]), Some("timed out"));
         assert_eq!(short_name("nas.tail1234.ts.net"), "nas");
         assert_eq!(short_name("github.com"), "github.com");
+    }
+
+    #[test]
+    fn answers_only_to_loopback_hosts_and_api_hosts() {
+        for ok in [
+            "127.0.0.1:9180",
+            "127.0.0.1",
+            "localhost:19180",
+            "LOCALHOST",
+            "localhost.:9180",
+            "[::1]:9180",
+            "[::1]",
+            "127.0.0.53:80",
+        ] {
+            assert!(host_allowed(Some(ok), &[]), "{ok}");
+        }
+        for bad in [
+            "evil.example:9180",
+            "localhost.evil.example",
+            "192.0.2.7:9180",
+            "[2001:db8::1]:9180",
+            "",
+        ] {
+            assert!(!host_allowed(Some(bad), &[]), "{bad}");
+        }
+        assert!(host_allowed(None, &[]));
+        let extra = ["netwatch.example.ts.net".to_string()];
+        assert!(host_allowed(Some("NetWatch.example.ts.net"), &extra));
+        assert!(host_allowed(Some("netwatch.example.ts.net:443"), &extra));
+        assert!(!host_allowed(Some("other.example.ts.net"), &extra));
     }
 }

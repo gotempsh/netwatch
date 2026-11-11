@@ -31,6 +31,7 @@ mode = "observe"          # "observe": propose only; "enforce": also ban automat
 drop_banned = true        # false: count banned packets but let them pass (a dry run)
 drop_syn_ip_options = false   # drop IPv4 SYNs with IP options from every source (CVE-2026-98432); Linux only
 api_listen = "127.0.0.1:9180" # read-only API and UI; must be a loopback address
+api_hosts = []                # Host names it answers to besides localhost, for a proxy on this machine
 tick_secs = 5
 ```
 

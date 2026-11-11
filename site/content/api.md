@@ -3,7 +3,7 @@ title: HTTP API
 description: The read-only JSON API the web UI uses, served on 127.0.0.1:9180.
 ---
 
-The daemon serves a GET-only JSON API and the web UI on `api_listen` (default `127.0.0.1:9180`, and it must be a loopback address). There are no write endpoints: bans, approvals and policy changes go through the CLI and the root-only control socket.
+The daemon serves a GET-only JSON API and the web UI on `api_listen` (default `127.0.0.1:9180`, and it must be a loopback address). There are no write endpoints: bans, approvals and policy changes go through the CLI and the root-only control socket. Requests must be addressed to `localhost`, `127.0.0.1` or `[::1]`; any other `Host` gets `403`, unless it is listed in `api_hosts` (see [Security](/security#the-web-ui-and-api)).
 
 ```shell
 curl -s http://127.0.0.1:9180/api/overview | jq .

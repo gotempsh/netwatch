@@ -7,7 +7,8 @@
 #   sudo scripts/e2e-netns.sh [path/to/netwatch]
 #   sudo IMAGE=netwatch:latest scripts/e2e-netns.sh   # the container image instead
 #
-# Checks detection (port scan, SSH brute force, ban/unban) and visibility
+# Checks detection (port scan, SSH brute force, ban/unban), the API Host check and
+# database mode, and visibility
 # (flows with process attribution, HTTP and DNS dissection, failed connects,
 # listen events).
 set -euo pipefail
@@ -209,6 +210,11 @@ if [[ -n $ID ]]; then
 else
     echo "FAIL: no ban proposal was raised"; fail=1
 fi
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: rebind.example' "http://$API/api/overview")
+[[ $code == 403 ]] && echo "OK: API refuses a foreign Host" || { echo "FAIL: foreign Host got $code, not 403"; fail=1; }
+mode=$(stat -c %a "$DIR/netwatch.db")
+[[ $mode == 600 ]] && echo "OK: database is 0600" || { echo "FAIL: database mode $mode, not 600"; fail=1; }
 
 kinds=$(curl -s "http://$API/api/sources/$ATTACKER" | python3 -c 'import json,sys; print(" ".join(f["kind"] for f in json.load(sys.stdin)["findings"]))')
 for k in port_scan ssh_bruteforce; do

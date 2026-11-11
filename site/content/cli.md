@@ -70,8 +70,8 @@ Read-only commands query the daemon's API on `127.0.0.1:9180` and need no root. 
 |---|---|
 | `netwatch bans` | active bans |
 | `netwatch proposals [--all]` | what netwatch wants to ban, and why; `--all` includes decided ones |
-| `netwatch approve <id>` | **root**: apply a proposal |
-| `netwatch reject <id>` | **root**: dismiss a proposal |
+| `netwatch approve <id>...` | **root**: apply one or more proposals |
+| `netwatch reject <id>...` | **root**: dismiss one or more proposals |
 | `netwatch ban <ip-or-cidr>` | **root**: ban now |
 | `netwatch unban <ip-or-cidr>` | **root**: lift a ban |
 | `netwatch allow <ip-or-cidr> [--note <text>]` | **root**: never ban, keep out of proposals and bypass XDP drops |

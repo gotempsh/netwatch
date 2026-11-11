@@ -136,10 +136,16 @@ enum Cmd {
     },
     /// Remove an address added with `allow` (root).
     Disallow { target: String },
-    /// Apply a proposed action, by its ID in `netwatch proposals` (root).
-    Approve { id: i64 },
-    /// Drop a proposed action (root).
-    Reject { id: i64 },
+    /// Apply proposed actions, by their IDs in `netwatch proposals` (root).
+    Approve {
+        #[arg(required = true, value_name = "ID")]
+        ids: Vec<i64>,
+    },
+    /// Drop proposed actions, by their IDs in `netwatch proposals` (root).
+    Reject {
+        #[arg(required = true, value_name = "ID")]
+        ids: Vec<i64>,
+    },
     /// Show or change the ban policy.
     Policy {
         #[command(subcommand)]
@@ -892,7 +898,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             );
             if !all {
                 println!(
-                    "\napprove: sudo netwatch approve <ID>   reject: sudo netwatch reject <ID>"
+                    "\napprove: sudo netwatch approve <ID>...   reject: sudo netwatch reject <ID>..."
                 );
             }
         }
@@ -919,8 +925,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Disallow { target } => {
             println!("{}", ctl(Request::Disallow { target }).await?.message)
         }
-        Cmd::Approve { id } => println!("{}", ctl(Request::Approve { id }).await?.message),
-        Cmd::Reject { id } => println!("{}", ctl(Request::Reject { id }).await?.message),
+        Cmd::Approve { ids } => each_proposal(ids, |id| ctl(Request::Approve { id })).await?,
+        Cmd::Reject { ids } => each_proposal(ids, |id| ctl(Request::Reject { id })).await?,
         Cmd::Analyze => println!("{}", ctl(Request::Analyze).await?.message),
         Cmd::Policy { cmd } => match cmd {
             PolicyCmd::Show => {
@@ -984,6 +990,36 @@ impl Client {
         }
         Ok(serde_json::from_str(&text)?)
     }
+}
+
+/// Sends one approve or reject per proposal, in order and once each, so a
+/// stale ID doesn't stop the rest; fails at the end if any did. With a single
+/// ID it prints the daemon's message alone, as before.
+async fn each_proposal<F, Fut>(mut ids: Vec<i64>, send: F) -> anyhow::Result<()>
+where
+    F: Fn(i64) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<control::Response>>,
+{
+    let mut seen = std::collections::HashSet::new();
+    ids.retain(|id| seen.insert(*id));
+    if let [id] = ids[..] {
+        println!("{}", send(id).await?.message);
+        return Ok(());
+    }
+    let mut failed = 0;
+    for &id in &ids {
+        match send(id).await {
+            Ok(r) => println!("#{id}: {}", r.message),
+            Err(e) => {
+                failed += 1;
+                eprintln!("#{id}: {e:#}");
+            }
+        }
+    }
+    if failed > 0 {
+        bail!("{failed} of {} proposals failed", ids.len());
+    }
+    Ok(())
 }
 
 fn not_running(base: &str) -> String {
@@ -1236,4 +1272,56 @@ fn print_rules(title: &str, rules: &Value) {
         );
     }
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    fn sent(ids: Vec<i64>, failing: &[i64]) -> (Vec<i64>, anyhow::Result<()>) {
+        let calls = Mutex::new(Vec::new());
+        let result = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(each_proposal(ids, |id| {
+                calls.lock().unwrap().push(id);
+                let fail = failing.contains(&id);
+                async move {
+                    if fail {
+                        bail!("no proposal #{id}");
+                    }
+                    Ok(control::Response {
+                        ok: true,
+                        message: format!("banned 192.0.2.{id}/32 for 7d"),
+                        data: None,
+                    })
+                }
+            }));
+        (calls.into_inner().unwrap(), result)
+    }
+
+    #[test]
+    fn approve_sends_each_id_once_and_reports_failures_at_the_end() {
+        let (calls, result) = sent(vec![2, 3, 5], &[]);
+        assert_eq!(calls, [2, 3, 5]);
+        assert!(result.is_ok());
+
+        let (calls, result) = sent(vec![2, 3, 2, 5], &[3]);
+        assert_eq!(calls, [2, 3, 5], "keeps going past #3, and #2 goes once");
+        assert_eq!(result.unwrap_err().to_string(), "1 of 3 proposals failed");
+
+        let (_, result) = sent(vec![7], &[7]);
+        assert_eq!(result.unwrap_err().to_string(), "no proposal #7");
+    }
+
+    #[test]
+    fn approve_and_reject_take_several_ids() {
+        let cli = Cli::try_parse_from(["netwatch", "approve", "2", "3", "5"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Approve { ids } if ids == [2, 3, 5]));
+        let cli = Cli::try_parse_from(["netwatch", "reject", "4"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Reject { ids } if ids == [4]));
+        assert!(Cli::try_parse_from(["netwatch", "approve"]).is_err());
+    }
 }

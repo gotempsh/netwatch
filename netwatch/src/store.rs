@@ -10,6 +10,118 @@ use serde::Serialize;
 
 use crate::window::{Bucket, Bytes, Closed, KEEP};
 
+/// `filter` when the value is given, else a term that is always true and
+/// still uses the parameter (`?2 IS NULL`). Written out rather than as
+/// `(?2 IS NULL OR ip=?2)`, which SQLite can't serve from an index: it scanned
+/// every row to find one address's.
+fn when_given<T>(value: Option<T>, filter: &str, param: &str) -> String {
+    match value {
+        Some(_) => filter.to_string(),
+        None => format!("{param} IS NULL"),
+    }
+}
+
+/// The SQL and arguments for [`Store::flows`].
+fn flows_query(f: &FlowFilter, limit: u32) -> (String, Vec<rusqlite::types::Value>) {
+    const COLUMNS: &str = "SELECT iface, proto, local, lport, remote, rport, dir, first_seen, last_seen,
+                bytes_in, bytes_out, pkts_in, pkts_out, state, connect_ms, retrans, rst_sent, rst_recv, pid,
+                process, exe, container, remote_name, app, country, asn, as_org, service_port, unit,
+                remote_pid, remote_process, remote_container, remote_unit
+         FROM flows";
+    // Every filter but the address.
+    let mut sql = String::from("last_seen >= ?");
+    let mut args: Vec<rusqlite::types::Value> = vec![f.since.into()];
+    if let Some(p) = f.port {
+        sql.push_str(" AND (lport = ? OR rport = ?)");
+        args.push((p as i64).into());
+        args.push((p as i64).into());
+    }
+    for (col, v) in [
+        ("process", &f.process),
+        ("dir", &f.dir),
+        ("iface", &f.iface),
+        ("proto", &f.proto),
+    ] {
+        if let Some(v) = v {
+            sql.push_str(&format!(" AND {col} = ?"));
+            args.push(v.clone().into());
+        }
+    }
+    if let Some(q) = &f.q {
+        sql.push_str(
+            " AND (remote LIKE ? OR remote_name LIKE ? OR process LIKE ? OR container LIKE ? OR unit LIKE ?
+               OR remote_process LIKE ? OR remote_container LIKE ? OR app LIKE ? OR as_org LIKE ? OR country = ?)",
+        );
+        let like = format!("%{q}%");
+        for _ in 0..9 {
+            args.push(like.clone().into());
+        }
+        args.push(q.to_ascii_uppercase().into());
+    }
+    let limit = rusqlite::types::Value::from(limit as i64);
+    match &f.ip {
+        None => {
+            args.push(limit);
+            (
+                format!("{COLUMNS} WHERE {sql} ORDER BY last_seen DESC LIMIT ?"),
+                args,
+            )
+        }
+        // Remote and local in two halves, each read newest first from its
+        // own index until it has enough. As one `remote = ? OR local = ?`
+        // query, SQLite scanned every flow of the week for an address with
+        // few, or sorted every flow of one with many (the host's own).
+        Some(ip) => {
+            let ip = rusqlite::types::Value::from(ip.clone());
+            let mut all = vec![ip.clone()];
+            all.extend(args.iter().cloned());
+            all.push(limit.clone());
+            all.extend([ip.clone(), ip]);
+            all.extend(args);
+            all.extend([limit.clone(), limit]);
+            (
+                format!(
+                    "SELECT * FROM ({COLUMNS} WHERE remote = ? AND {sql} ORDER BY last_seen DESC LIMIT ?)
+                     UNION ALL
+                     SELECT * FROM ({COLUMNS} WHERE local = ? AND remote <> ? AND {sql} ORDER BY last_seen DESC LIMIT ?)
+                     ORDER BY last_seen DESC LIMIT ?"
+                ),
+                all,
+            )
+        }
+    }
+}
+
+fn alerts_sql(ip: Option<&str>) -> String {
+    format!(
+        "SELECT id, ip, kind, score, summary, location, first_ts, last_ts, count FROM alerts
+         WHERE last_ts>=?1 AND {} ORDER BY last_ts DESC LIMIT ?3",
+        when_given(ip, "ip=?2", "?2"),
+    )
+}
+
+fn proposals_sql(target: Option<&str>) -> String {
+    format!(
+        "SELECT id, created, target, action, ttl_secs, reason, source, confidence, status, decided_at
+         FROM proposals WHERE (?1=0 OR status='pending') AND {}
+         ORDER BY created DESC LIMIT ?3",
+        when_given(target, "target=?2", "?2"),
+    )
+}
+
+fn ssh_sql(ip: Option<&str>, kind: Option<&str>) -> String {
+    format!(
+        "SELECT ts, kind, user, ip, method, location, port FROM ssh_events
+         WHERE ts>=?1 AND {} AND {} ORDER BY ts DESC LIMIT ?4",
+        when_given(ip, "ip=?2", "?2"),
+        when_given(kind, "kind=?3", "?3"),
+    )
+}
+
+const IP_HISTORY_SQL: &str =
+    "SELECT hour, in_packets, in_bytes, syn, blocked, max_score FROM traffic_hourly
+     WHERE ip=?1 AND hour>=?2 ORDER BY hour";
+
 pub struct Store {
     conn: Connection,
     /// The last minute closed by this process that is stored (`Closed::seq`).
@@ -428,11 +540,13 @@ impl Store {
                 hour INTEGER NOT NULL, ip TEXT NOT NULL, country TEXT NOT NULL, location TEXT NOT NULL,
                 in_packets INTEGER NOT NULL, in_bytes INTEGER NOT NULL, syn INTEGER NOT NULL,
                 blocked INTEGER NOT NULL, max_score INTEGER NOT NULL, PRIMARY KEY (hour, ip));
+             CREATE INDEX IF NOT EXISTS traffic_hourly_ip ON traffic_hourly(ip, hour);
              CREATE TABLE IF NOT EXISTS proposals (
                 id INTEGER PRIMARY KEY, created INTEGER NOT NULL, target TEXT NOT NULL, action TEXT NOT NULL,
                 ttl_secs INTEGER, reason TEXT NOT NULL, source TEXT NOT NULL, confidence REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', decided_at INTEGER);
              CREATE INDEX IF NOT EXISTS proposals_status ON proposals(status, created);
+             CREATE INDEX IF NOT EXISTS proposals_target ON proposals(target, created);
              CREATE TABLE IF NOT EXISTS llm_runs (
                 ts INTEGER NOT NULL, kind TEXT NOT NULL, model TEXT NOT NULL, prompt_tokens INTEGER NOT NULL,
                 completion_tokens INTEGER NOT NULL, summary TEXT NOT NULL, proposals INTEGER NOT NULL);
@@ -450,6 +564,7 @@ impl Store {
                 unit TEXT);
              CREATE INDEX IF NOT EXISTS flows_last ON flows(last_seen);
              CREATE INDEX IF NOT EXISTS flows_remote ON flows(remote, last_seen);
+             CREATE INDEX IF NOT EXISTS flows_local ON flows(local, last_seen);
              CREATE INDEX IF NOT EXISTS flows_process ON flows(process, last_seen);
              CREATE TABLE IF NOT EXISTS dns_queries (
                 ts INTEGER NOT NULL, iface TEXT NOT NULL, client TEXT NOT NULL, server TEXT NOT NULL,
@@ -557,10 +672,7 @@ impl Store {
         ip: Option<&str>,
         limit: u32,
     ) -> anyhow::Result<Vec<AlertRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, ip, kind, score, summary, location, first_ts, last_ts, count FROM alerts
-             WHERE last_ts>=?1 AND (?2 IS NULL OR ip=?2) ORDER BY last_ts DESC LIMIT ?3",
-        )?;
+        let mut stmt = self.conn.prepare(&alerts_sql(ip))?;
         let rows = stmt.query_map(params![since, ip, limit], |r| {
             Ok(AlertRow {
                 id: r.get(0)?,
@@ -781,48 +893,7 @@ impl Store {
 
     /// Finished flows matching `f`, newest first.
     pub fn flows(&self, f: &FlowFilter, limit: u32) -> anyhow::Result<Vec<FlowRow>> {
-        let mut sql = String::from(
-            "SELECT iface, proto, local, lport, remote, rport, dir, first_seen, last_seen, bytes_in, bytes_out,
-                    pkts_in, pkts_out, state, connect_ms, retrans, rst_sent, rst_recv, pid, process, exe, container,
-                    remote_name, app, country, asn, as_org, service_port, unit, remote_pid, remote_process,
-                    remote_container, remote_unit
-             FROM flows WHERE last_seen >= ?",
-        );
-        let mut args: Vec<rusqlite::types::Value> = vec![f.since.into()];
-        if let Some(ip) = &f.ip {
-            sql.push_str(" AND (remote = ? OR local = ?)");
-            args.push(ip.clone().into());
-            args.push(ip.clone().into());
-        }
-        if let Some(p) = f.port {
-            sql.push_str(" AND (lport = ? OR rport = ?)");
-            args.push((p as i64).into());
-            args.push((p as i64).into());
-        }
-        for (col, v) in [
-            ("process", &f.process),
-            ("dir", &f.dir),
-            ("iface", &f.iface),
-            ("proto", &f.proto),
-        ] {
-            if let Some(v) = v {
-                sql.push_str(&format!(" AND {col} = ?"));
-                args.push(v.clone().into());
-            }
-        }
-        if let Some(q) = &f.q {
-            sql.push_str(
-                " AND (remote LIKE ? OR remote_name LIKE ? OR process LIKE ? OR container LIKE ? OR unit LIKE ?
-                   OR remote_process LIKE ? OR remote_container LIKE ? OR app LIKE ? OR as_org LIKE ? OR country = ?)",
-            );
-            let like = format!("%{q}%");
-            for _ in 0..9 {
-                args.push(like.clone().into());
-            }
-            args.push(q.to_ascii_uppercase().into());
-        }
-        sql.push_str(" ORDER BY last_seen DESC LIMIT ?");
-        args.push((limit as i64).into());
+        let (sql, args) = flows_query(f, limit);
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
             let app: Option<String> = r.get(23)?;
@@ -1234,10 +1305,7 @@ impl Store {
     }
 
     pub fn ip_history(&self, ip: &str, since: i64) -> anyhow::Result<Vec<HourRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT hour, in_packets, in_bytes, syn, blocked, max_score FROM traffic_hourly
-             WHERE ip=?1 AND hour>=?2 ORDER BY hour",
-        )?;
+        let mut stmt = self.conn.prepare(IP_HISTORY_SQL)?;
         let rows = stmt.query_map(params![ip, since], |r| {
             Ok(HourRow {
                 hour: r.get(0)?,
@@ -1296,11 +1364,7 @@ impl Store {
         target: Option<&str>,
         limit: u32,
     ) -> anyhow::Result<Vec<ProposalRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, created, target, action, ttl_secs, reason, source, confidence, status, decided_at
-             FROM proposals WHERE (?1=0 OR status='pending') AND (?2 IS NULL OR target=?2)
-             ORDER BY created DESC LIMIT ?3",
-        )?;
+        let mut stmt = self.conn.prepare(&proposals_sql(target))?;
         let rows = stmt.query_map(params![pending_only as i64, target, limit], |r| {
             Ok(ProposalRow {
                 id: r.get(0)?,
@@ -1372,11 +1436,7 @@ impl Store {
         kind: Option<&str>,
         limit: u32,
     ) -> anyhow::Result<Vec<SshEventRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT ts, kind, user, ip, method, location, port FROM ssh_events
-             WHERE ts>=?1 AND (?2 IS NULL OR ip=?2) AND (?3 IS NULL OR kind=?3)
-             ORDER BY ts DESC LIMIT ?4",
-        )?;
+        let mut stmt = self.conn.prepare(&ssh_sql(ip, kind))?;
         let rows = stmt.query_map(params![since, ip, kind, limit], |r| {
             Ok(SshEventRow {
                 ts: r.get(0)?,
@@ -1476,6 +1536,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     fn flow(
@@ -1925,5 +1986,213 @@ mod tests {
             assert_eq!(s.ssh_events(0, Some("203.0.113.9"), 10).unwrap().len(), 2);
         }
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The plan SQLite picks for `sql`, one step per line.
+    fn plan(s: &Store, sql: &str) -> String {
+        let mut stmt = s
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        let nulls = vec![rusqlite::types::Value::Null; stmt.parameter_count()];
+        stmt.query_map(rusqlite::params_from_iter(nulls), |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn lookups_by_address_read_their_index() {
+        // A source's page runs these on every refresh. Without the index each
+        // one read a whole table: seconds on a busy server.
+        let s = Store::open(Path::new(":memory:")).unwrap();
+        let filter = FlowFilter {
+            since: 0,
+            ip: Some("203.0.113.9".into()),
+            ..Default::default()
+        };
+        let flows = plan(&s, &flows_query(&filter, 200).0);
+        assert!(
+            flows.contains("flows_remote") && flows.contains("flows_local"),
+            "{flows}"
+        );
+        assert!(!flows.contains("flows_last"), "{flows}");
+        for (sql, index) in [
+            (alerts_sql(Some("ip")), "alerts_ip"),
+            (ssh_sql(Some("ip"), None), "ssh_events_ip"),
+            (ssh_sql(Some("ip"), Some("accepted")), "ssh_events_ip"),
+            (proposals_sql(Some("ip")), "proposals_target"),
+            (IP_HISTORY_SQL.to_string(), "traffic_hourly_ip"),
+        ] {
+            let p = plan(&s, &sql);
+            assert!(p.contains(&format!("USING INDEX {index}")), "{sql}\n{p}");
+        }
+    }
+
+    #[test]
+    fn flows_of_an_address_match_either_end_once() {
+        let mut s = Store::open(Path::new(":memory:")).unwrap();
+        let host = "192.0.2.10";
+        let mut to_host = flow("198.51.100.1", "out", 443, 300, None, None, "curl");
+        to_host.local = "192.0.2.11".into();
+        to_host.remote = host.into();
+        let mut itself = flow(host, "out", 53, 200, None, None, "dig");
+        itself.local = host.into();
+        s.add_flows(&[
+            flow("198.51.100.1", "out", 443, 100, None, None, "curl"),
+            to_host,
+            itself,
+            flow("198.51.100.2", "out", 22, 400, None, None, "ssh"),
+        ])
+        .unwrap();
+        let get = |ip: &str, port: Option<u16>, limit: u32| {
+            let f = FlowFilter {
+                since: 0,
+                ip: Some(ip.into()),
+                port,
+                ..Default::default()
+            };
+            s.flows(&f, limit)
+                .unwrap()
+                .into_iter()
+                .map(|r| (r.remote, r.last_seen))
+                .collect::<Vec<_>>()
+        };
+        // Newest first across both halves; the flow with the host at both
+        // ends comes once.
+        assert_eq!(
+            get(host, None, 10),
+            [
+                ("198.51.100.2".to_string(), 400),
+                (host.to_string(), 300),
+                (host.to_string(), 200),
+                ("198.51.100.1".to_string(), 100),
+            ]
+        );
+        assert_eq!(get(host, None, 2).len(), 2);
+        assert_eq!(get(host, Some(53), 10), [(host.to_string(), 200)]);
+        assert_eq!(
+            get("198.51.100.1", None, 10),
+            [("198.51.100.1".to_string(), 100)]
+        );
+        assert!(get("203.0.113.9", None, 10).is_empty());
+    }
+
+    /// Times the queries behind /api/sources/{ip} on a database the size of a
+    /// busy server's after a week. `cargo test --release scale -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn source_detail_queries_at_scale() {
+        use std::time::Instant;
+        let s = Store::open(Path::new(":memory:")).unwrap();
+        let now = 1_800_000_000i64;
+        let ip = |i: u64| {
+            format!(
+                "{}.{}.{}.{}",
+                11 + i % 200,
+                (i / 200) % 256,
+                (i / 51_200) % 256,
+                i % 251
+            )
+        };
+        let t = Instant::now();
+        s.conn.execute_batch("BEGIN").unwrap();
+        {
+            let mut f = s.conn.prepare("INSERT INTO flows (iface, proto, local, lport, remote, rport, dir, first_seen, last_seen, bytes_in, bytes_out, pkts_in, pkts_out, state, retrans, rst_sent, rst_recv, service_port) VALUES ('eth0','tcp','10.0.0.2',443,?1,50000,'in',?2,?2,1,1,1,1,'closed',0,0,0,443)").unwrap();
+            for i in 0..2_000_000u64 {
+                f.execute(params![
+                    ip(i * 7919 % 200_000),
+                    now - (i as i64 % (7 * 86_400))
+                ])
+                .unwrap();
+            }
+            let mut e = s.conn.prepare("INSERT INTO ssh_events (ts, kind, user, ip, method, location, port) VALUES (?1,'failed','root',?2,'password','NL AS1',?3)").unwrap();
+            for i in 0..1_000_000u64 {
+                e.execute(params![
+                    now - (i as i64 % (30 * 86_400)),
+                    ip(i * 104_729 % 50_000),
+                    (i % 60_000) as i64
+                ])
+                .unwrap();
+            }
+            let mut a = s.conn.prepare("INSERT INTO alerts (ip, kind, score, summary, location, first_ts, last_ts, count) VALUES (?1,'port_scan',40,'scan','NL AS1',?2,?2,1)").unwrap();
+            for i in 0..200_000u64 {
+                a.execute(params![
+                    ip(i * 31 % 100_000),
+                    now - (i as i64 % (30 * 86_400))
+                ])
+                .unwrap();
+            }
+            let mut h = s.conn.prepare("INSERT INTO traffic_hourly (hour, ip, country, location, in_packets, in_bytes, syn, blocked, max_score) VALUES (?1,?2,'NL','NL AS1',1,1,1,0,10)").unwrap();
+            for hour in 0..168i64 {
+                for j in 0..5_000u64 {
+                    h.execute(params![
+                        now - now % 3600 - hour * 3600,
+                        ip(j * 13 + hour as u64)
+                    ])
+                    .unwrap();
+                }
+            }
+            let mut p = s.conn.prepare("INSERT INTO proposals (created, target, action, ttl_secs, reason, source, confidence, status) VALUES (?1,?2,'ban',86400,'x','rules',0.9,'rejected')").unwrap();
+            for i in 0..20_000u64 {
+                p.execute(params![now - i as i64, ip(i)]).unwrap();
+            }
+        }
+        s.conn.execute_batch("COMMIT").unwrap();
+        eprintln!("filled in {:.1} s", t.elapsed().as_secs_f64());
+
+        // An address with a little history, like most attackers.
+        let target = "91.92.40.12";
+        s.conn
+            .execute(
+                "INSERT INTO ssh_events (ts, kind, ip, location) VALUES (?1,'failed',?2,'NL AS1')",
+                params![now, target],
+            )
+            .unwrap();
+        let since = now - 7 * 86_400;
+        let filter = FlowFilter {
+            since,
+            ip: Some(target.into()),
+            ..Default::default()
+        };
+        let time = |name: &str, f: &dyn Fn()| {
+            let t = Instant::now();
+            f();
+            eprintln!("{name:12} {:7.1} ms", t.elapsed().as_secs_f64() * 1000.0);
+        };
+        time("flows", &|| {
+            s.flows(&filter, 200).unwrap();
+        });
+        time("alerts", &|| {
+            s.alerts(0, Some(target), 200).unwrap();
+        });
+        time("ip_history", &|| {
+            s.ip_history(target, since).unwrap();
+        });
+        time("ssh_events", &|| {
+            s.ssh_events(0, Some(target), 200).unwrap();
+        });
+        time("ssh_logins", &|| {
+            s.ssh_logins(0, Some(target), 50).unwrap();
+        });
+        time("proposals", &|| {
+            s.proposals(false, Some(target), 50).unwrap();
+        });
+        // The host's own address is every flow's local one; a noisy attacker has
+        // thousands of rows in each table.
+        for busy in ["10.0.0.2", &ip(0)] {
+            let filter = FlowFilter {
+                since,
+                ip: Some(busy.into()),
+                ..Default::default()
+            };
+            time(&format!("flows {busy}"), &|| {
+                s.flows(&filter, 200).unwrap();
+            });
+            time(&format!("ssh {busy}"), &|| {
+                s.ssh_events(0, Some(busy), 200).unwrap();
+            });
+        }
     }
 }
